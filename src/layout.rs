@@ -58,6 +58,7 @@ impl Layout {
         let top_height = original_height / 2;
         let bottom_height = original_height - top_height;
         pane.height = top_height;
+        pane.buffer.resize(pane.width, top_height);
 
         let new_pane = Pane {
             id: self.next_id,
@@ -88,6 +89,7 @@ impl Layout {
         let left_width = original_width / 2;
         let right_width = original_width - left_width;
         pane.width = left_width;
+        pane.buffer.resize(left_width, pane.height);
 
         let new_pane = Pane {
             id: self.next_id,

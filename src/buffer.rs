@@ -103,6 +103,19 @@ impl Buffer {
         }
         self.dirty.clear();
     }
+
+    pub fn resize(&mut self, new_width: usize, new_height: usize) {
+        let mut new_cells = vec![vec![Cell::default(); new_width]; new_height];
+        for y in 0..new_height.min(self.height) {
+            for x in 0..new_width.min(self.width) {
+                new_cells[y][x] = self.cells[y][x].clone();
+            }
+        }
+        self.cells = new_cells;
+        self.width = new_width;
+        self.height = new_height;
+        self.dirty.clear();
+    }
 }
 
 #[cfg(test)]
