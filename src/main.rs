@@ -304,6 +304,11 @@ fn process_pty_actions(pane: &mut layout::Pane, pane_data: &mut PaneData, action
         match action {
             ansi::Action::Write(ch) => {
                 ensure_cursor_in_bounds(pane, pane_data);
+                if pane_data.cursor_x >= pane.width {
+                    pane_data.cursor_x = 0;
+                    pane_data.cursor_y += 1;
+                    ensure_cursor_in_bounds(pane, pane_data);
+                }
                 pane.buffer.write(pane_data.cursor_x, pane_data.cursor_y, *ch, pane_data.style);
                 pane_data.cursor_x += 1;
                 if pane_data.cursor_x >= pane.width {
