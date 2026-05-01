@@ -11,13 +11,12 @@ impl PTY {
     pub fn new(command: &str, args: &[&str]) -> Result<Self, String> {
         let mut master: c_int = -1;
         let mut slave: c_int = -1;
-        let mut name: [c_char; 1024] = [0; 1024];
 
         unsafe {
             let result = openpty(
                 &mut master,
                 &mut slave,
-                name.as_mut_ptr(),
+                ptr::null_mut(),
                 ptr::null(),
                 ptr::null(),
             );
@@ -92,6 +91,7 @@ impl PTY {
 
     pub fn write(&mut self, data: &[u8]) -> Result<usize, String> {
         let mut total_written = 0;
+        let mut retries = 0;
         while total_written < data.len() {
             unsafe {
                 let written = libc::write(
@@ -102,11 +102,16 @@ impl PTY {
                 if written < 0 {
                     let err = *libc::__errno_location();
                     if err == libc::EAGAIN || err == libc::EWOULDBLOCK {
+                        retries += 1;
+                        if retries > 100 {
+                            return Err("PTY write buffer full, giving up".to_string());
+                        }
                         libc::usleep(1000);
                         continue;
                     }
                     return Err(format!("Write failed: {}", std::io::Error::last_os_error()));
                 }
+                retries = 0;
                 total_written += written as usize;
             }
         }
@@ -172,8 +177,15 @@ impl Drop for PTY {
         self.close();
         unsafe {
             libc::kill(self.pid, libc::SIGTERM);
+            // Give child 50ms to exit gracefully
+            libc::usleep(50_000);
             let mut status: libc::c_int = 0;
-            libc::waitpid(self.pid, &mut status, libc::WNOHANG);
+            let result = libc::waitpid(self.pid, &mut status, libc::WNOHANG);
+            if result == 0 {
+                // Child still alive, force kill
+                libc::kill(self.pid, libc::SIGKILL);
+                libc::waitpid(self.pid, &mut status, 0);
+            }
         }
     }
 }
