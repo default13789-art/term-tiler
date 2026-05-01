@@ -39,17 +39,12 @@ impl Renderer {
                 let cell = pane.buffer.get(x, y).unwrap();
                 self.move_cursor((pane.x + x) as u16, (pane.y + y) as u16);
 
+                write!(self.stdout, "\x1B[0m").ok();
                 let fg = fg_escape(cell.style.fg_color);
                 let bg = bg_escape(cell.style.bg_color);
                 let bold = if cell.style.bold { "\x1B[1m" } else { "" };
 
                 write!(self.stdout, "{}{}{}{}", bold, fg, bg, cell.ch).ok();
-
-                if cell.style.bold || cell.style.fg_color != crate::buffer::Color::Default
-                    || cell.style.bg_color != crate::buffer::Color::Default
-                {
-                    write!(self.stdout, "\x1B[0m").ok();
-                }
             }
         }
 
