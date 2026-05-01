@@ -9,7 +9,7 @@ pub enum Action {
     ClearScreen,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum Color {
     Default,
     Black,
