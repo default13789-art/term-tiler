@@ -85,22 +85,25 @@ fn main() -> Result<(), String> {
             }
         }
 
-        // Read from any PTY that has data
+        // Read from any PTY that has data or hung up
         for i in 1..poll_fds.len() {
-            if poll_fds[i].revents & libc::POLLIN != 0 {
+            let events = poll_fds[i].revents;
+            if events & (libc::POLLIN | libc::POLLHUP) != 0 {
                 let fd = poll_fds[i].fd;
                 if let Some((&pane_id, pane_data)) = panes.iter_mut().find(|(_, pd)| pd.pty.master_fd() == fd) {
-                    match pane_data.pty.read_nonblocking() {
-                        Ok(Some(output)) => {
-                            if !output.is_empty() {
-                                if let Some(pane) = layout.panes.iter_mut().find(|p| p.id == pane_id) {
-                                    let actions = ansi::parse(&String::from_utf8_lossy(&output));
-                                    process_pty_actions(pane, pane_data, &actions);
+                    loop {
+                        match pane_data.pty.read_nonblocking() {
+                            Ok(Some(output)) => {
+                                if !output.is_empty() {
+                                    if let Some(pane) = layout.panes.iter_mut().find(|p| p.id == pane_id) {
+                                        let actions = ansi::parse(&String::from_utf8_lossy(&output));
+                                        process_pty_actions(pane, pane_data, &actions);
+                                    }
                                 }
                             }
+                            Ok(None) => break,
+                            Err(_) => break,
                         }
-                        Ok(None) => {}
-                        Err(_) => {}
                     }
                 }
             }
