@@ -2,8 +2,11 @@
 pub enum Action {
     Write(char),
     MoveCursor(usize, usize),
+    Newline,
+    CarriageReturn,
     SetFgColor(Color),
     SetBgColor(Color),
+    SetBold(bool),
     Reset,
     ClearLine,
     ClearScreen,
@@ -34,7 +37,11 @@ pub fn parse(input: &str) -> Vec<Action> {
                     actions.push(seq);
                 }
             }
-        } else if ch != '\r' && ch != '\n' {
+        } else if ch == '\n' {
+            actions.push(Action::Newline);
+        } else if ch == '\r' {
+            actions.push(Action::CarriageReturn);
+        } else {
             actions.push(Action::Write(ch));
         }
     }

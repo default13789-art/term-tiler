@@ -133,7 +133,9 @@ fn process_pty_actions(pane: &mut layout::Pane, pane_data: &mut PaneData, action
     for action in actions {
         match action {
             ansi::Action::Write(ch) => {
-                pane.buffer.write(pane_data.cursor_x, pane_data.cursor_y, *ch, pane_data.style);
+                if pane_data.cursor_y < pane.height {
+                    pane.buffer.write(pane_data.cursor_x, pane_data.cursor_y, *ch, pane_data.style);
+                }
                 pane_data.cursor_x += 1;
                 if pane_data.cursor_x >= pane.width {
                     pane_data.cursor_x = 0;
@@ -150,9 +152,19 @@ fn process_pty_actions(pane: &mut layout::Pane, pane_data: &mut PaneData, action
             ansi::Action::SetBgColor(color) => {
                 pane_data.style.bg_color = buffer_color_to_color(*color);
             }
+            ansi::Action::SetBold(bold) => {
+                pane_data.style.bold = *bold;
+            }
             ansi::Action::Reset => {
                 pane_data.cursor_x = 0;
                 pane_data.cursor_y = 0;
+                pane_data.style = buffer::Style::default();
+            }
+            ansi::Action::Newline => {
+                pane_data.cursor_y += 1;
+            }
+            ansi::Action::CarriageReturn => {
+                pane_data.cursor_x = 0;
             }
             ansi::Action::ClearLine => {
                 for x in 0..pane.width {
