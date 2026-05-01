@@ -88,6 +88,22 @@ impl Buffer {
         self.dirty.clear();
     }
 
+    pub fn scroll_up(&mut self, n: usize) {
+        if n >= self.height {
+            self.clear();
+            return;
+        }
+        for y in 0..self.height - n {
+            self.cells[y] = self.cells[y + n].clone();
+        }
+        for y in self.height - n..self.height {
+            for x in 0..self.width {
+                self.cells[y][x] = Cell::default();
+            }
+        }
+        self.dirty.clear();
+    }
+
     pub fn is_dirty(&self, x: usize, y: usize) -> bool {
         self.dirty.contains(&(x, y))
     }

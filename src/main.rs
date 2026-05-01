@@ -265,9 +265,8 @@ fn process_pty_actions(pane: &mut layout::Pane, pane_data: &mut PaneData, action
     for action in actions {
         match action {
             ansi::Action::Write(ch) => {
-                if pane_data.cursor_y < pane.height {
-                    pane.buffer.write(pane_data.cursor_x, pane_data.cursor_y, *ch, pane_data.style);
-                }
+                ensure_cursor_in_bounds(pane, pane_data);
+                pane.buffer.write(pane_data.cursor_x, pane_data.cursor_y, *ch, pane_data.style);
                 pane_data.cursor_x += 1;
                 if pane_data.cursor_x >= pane.width {
                     pane_data.cursor_x = 0;
@@ -292,13 +291,15 @@ fn process_pty_actions(pane: &mut layout::Pane, pane_data: &mut PaneData, action
             }
             ansi::Action::Newline => {
                 pane_data.cursor_y += 1;
+                ensure_cursor_in_bounds(pane, pane_data);
             }
             ansi::Action::CarriageReturn => {
                 pane_data.cursor_x = 0;
             }
             ansi::Action::ClearLine => {
+                let y = pane_data.cursor_y.min(pane.height - 1);
                 for x in 0..pane.width {
-                    pane.buffer.write(x, pane_data.cursor_y, ' ', pane_data.style);
+                    pane.buffer.write(x, y, ' ', pane_data.style);
                 }
                 pane_data.cursor_x = 0;
             }
@@ -308,6 +309,13 @@ fn process_pty_actions(pane: &mut layout::Pane, pane_data: &mut PaneData, action
                 pane_data.cursor_y = 0;
             }
         }
+    }
+}
+
+fn ensure_cursor_in_bounds(pane: &mut layout::Pane, pane_data: &mut PaneData) {
+    while pane_data.cursor_y >= pane.height {
+        pane.buffer.scroll_up(1);
+        pane_data.cursor_y = pane.height - 1;
     }
 }
 
