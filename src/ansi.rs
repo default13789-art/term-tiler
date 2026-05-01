@@ -6,11 +6,15 @@ pub enum Action {
     CursorDown(usize),
     CursorForward(usize),
     CursorBack(usize),
+    SaveCursor,
+    RestoreCursor,
     Newline,
     CarriageReturn,
     SetFgColor(Color),
     SetBgColor(Color),
     SetBold(bool),
+    SetItalic(bool),
+    SetUnderline(bool),
     Reset,
     ClearLine,
     ClearScreen,
@@ -94,6 +98,8 @@ fn parse_escape_sequence(chars: &mut std::iter::Peekable<std::str::Chars>) -> Ve
             'D' => vec![Action::CursorBack(n.max(1))],
             'K' => vec![Action::ClearLine],
             'J' => vec![Action::ClearScreen],
+            's' => vec![Action::SaveCursor],
+            'u' => vec![Action::RestoreCursor],
             'm' => {
                 if params.is_empty() {
                     return vec![Action::Reset];
@@ -116,7 +122,11 @@ fn parse_color_codes(codes: &[u32]) -> Vec<Action> {
         match code {
             0 => actions.push(Action::Reset),
             1 => actions.push(Action::SetBold(true)),
+            3 => actions.push(Action::SetItalic(true)),
+            4 => actions.push(Action::SetUnderline(true)),
             22 => actions.push(Action::SetBold(false)),
+            23 => actions.push(Action::SetItalic(false)),
+            24 => actions.push(Action::SetUnderline(false)),
             30 => actions.push(Action::SetFgColor(Color::Black)),
             31 => actions.push(Action::SetFgColor(Color::Red)),
             32 => actions.push(Action::SetFgColor(Color::Green)),

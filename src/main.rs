@@ -13,6 +13,7 @@ struct PaneData {
     pty: pty::PTY,
     cursor_x: usize,
     cursor_y: usize,
+    saved_cursor: Option<(usize, usize)>,
     style: buffer::Style,
 }
 
@@ -34,6 +35,7 @@ fn main() -> Result<(), String> {
         pty: initial_pty,
         cursor_x: 0,
         cursor_y: 0,
+        saved_cursor: None,
         style: buffer::Style::default(),
     });
 
@@ -207,6 +209,7 @@ fn spawn_new_pane(panes: &mut HashMap<usize, PaneData>, pane_id: usize, layout: 
         pty: new_pty,
         cursor_x: 0,
         cursor_y: 0,
+        saved_cursor: None,
         style: buffer::Style::default(),
     });
 }
@@ -343,6 +346,16 @@ fn process_pty_actions(pane: &mut layout::Pane, pane_data: &mut PaneData, action
             ansi::Action::CarriageReturn => {
                 pane_data.cursor_x = 0;
             }
+            ansi::Action::SaveCursor => {
+                pane_data.saved_cursor = Some((pane_data.cursor_x, pane_data.cursor_y));
+            }
+            ansi::Action::RestoreCursor => {
+                if let Some((sx, sy)) = pane_data.saved_cursor {
+                    pane_data.cursor_x = sx;
+                    pane_data.cursor_y = sy;
+                }
+            }
+            ansi::Action::SetItalic(_) | ansi::Action::SetUnderline(_) => {}
             ansi::Action::ClearLine => {
                 let y = pane_data.cursor_y.min(pane.height - 1);
                 for x in 0..pane.width {
