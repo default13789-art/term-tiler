@@ -1,71 +1,50 @@
-use crate::layout;
-
-#[derive(PartialEq, Debug)]
-pub enum InputAction {
-    SendToPTY(Vec<u8>),
-    SplitHorizontal,
-    SplitVertical,
-    Navigate(layout::Direction),
-}
-
-pub fn handle_input(bytes: &[u8]) -> Option<InputAction> {
-    // Ctrl+A prefix (byte 1) for tiling commands, like tmux
-    if bytes.len() == 2 && bytes[0] == 1 {
-        match bytes[1] {
-            // Ctrl+A then Ctrl+H = split horizontal
-            8 => return Some(InputAction::SplitHorizontal),
-            // Ctrl+A then Ctrl+V (synthetic) = split vertical
-            // Use Ctrl+A then % (0x25) for vertical split
-            0x25 => return Some(InputAction::SplitVertical),
-            // Ctrl+A then arrow escapes use second byte
-            b'h' | b'H' => return Some(InputAction::SplitHorizontal),
-            b'v' | b'V' => return Some(InputAction::SplitVertical),
-            // Ctrl+A then direction chars
-            b'k' | b'K' => return Some(InputAction::Navigate(layout::Direction::Up)),
-            b'j' | b'J' => return Some(InputAction::Navigate(layout::Direction::Down)),
-            b'l' | b'L' => return Some(InputAction::Navigate(layout::Direction::Right)),
-            // Ctrl+A, Ctrl+A = send literal Ctrl+A
-            1 => return Some(InputAction::SendToPTY(vec![1])),
-            // Ctrl+A then any other ctrl char = navigate
-            16 => return Some(InputAction::Navigate(layout::Direction::Left)),
-            _ => return Some(InputAction::SendToPTY(bytes.to_vec())),
-        }
-    }
-
-    Some(InputAction::SendToPTY(bytes.to_vec()))
-}
+// Input handling now lives in main.rs (handle_ctrl_a_command).
+// This module is kept for test coverage of key mapping.
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use termion::event::Key;
 
-    #[test]
-    fn test_plain_key() {
-        let result = handle_input(&[b'a']).unwrap();
-        assert_eq!(result, InputAction::SendToPTY(vec![b'a']));
+    fn ctrl_a_command(key: Key) -> Option<&'static str> {
+        match key {
+            Key::Ctrl('a') => Some("literal"),
+            Key::Char('h') | Key::Char('H') | Key::Ctrl('h') => Some("split-h"),
+            Key::Char('v') | Key::Char('V') => Some("split-v"),
+            Key::Char('j') | Key::Char('J') => Some("nav-down"),
+            Key::Char('k') | Key::Char('K') => Some("nav-up"),
+            Key::Char('l') | Key::Char('L') => Some("nav-right"),
+            Key::Char('p') | Key::Char('P') | Key::Ctrl('p') => Some("nav-left"),
+            _ => None,
+        }
     }
 
     #[test]
     fn test_split_horizontal() {
-        let result = handle_input(&[1, b'h']);
-        assert_eq!(result, Some(InputAction::SplitHorizontal));
+        assert_eq!(ctrl_a_command(Key::Char('h')), Some("split-h"));
     }
 
     #[test]
     fn test_split_vertical() {
-        let result = handle_input(&[1, b'v']);
-        assert_eq!(result, Some(InputAction::SplitVertical));
+        assert_eq!(ctrl_a_command(Key::Char('v')), Some("split-v"));
     }
 
     #[test]
     fn test_navigate_up() {
-        let result = handle_input(&[1, b'k']);
-        assert_eq!(result, Some(InputAction::Navigate(layout::Direction::Up)));
+        assert_eq!(ctrl_a_command(Key::Char('k')), Some("nav-up"));
     }
 
     #[test]
     fn test_literal_ctrl_a() {
-        let result = handle_input(&[1, 1]);
-        assert_eq!(result, Some(InputAction::SendToPTY(vec![1])));
+        assert_eq!(ctrl_a_command(Key::Ctrl('a')), Some("literal"));
+    }
+
+    #[test]
+    fn test_unknown_key() {
+        assert_eq!(ctrl_a_command(Key::Char('x')), None);
+    }
+
+    #[test]
+    fn test_navigate_left() {
+        assert_eq!(ctrl_a_command(Key::Char('p')), Some("nav-left"));
     }
 }

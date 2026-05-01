@@ -42,6 +42,7 @@ fn main() -> Result<(), String> {
     let stdin_fd = io::stdin().as_raw_fd();
     let mut stdin_buffer = [0u8; 64];
     let mut sequence_buf: Vec<u8> = Vec::new();
+    let mut ctrl_a_pending = false;
 
     loop {
         // Check for terminal resize
@@ -95,11 +96,39 @@ fn main() -> Result<(), String> {
             sequence_buf.extend_from_slice(&stdin_buffer[..n as usize]);
             while let Some((key, consumed)) = parse_next_key(&sequence_buf) {
                 sequence_buf.drain(..consumed);
-                let bytes = key_to_bytes(key);
-                if handle_key_action(&bytes, &mut panes, &mut layout) {
+
+                if ctrl_a_pending {
+                    ctrl_a_pending = false;
+                    if handle_ctrl_a_command(key, &mut panes, &mut layout) {
+                        continue;
+                    }
+                    // Not a recognized command — send Ctrl+A then the key to PTY
+                    send_to_focused_pty(&[1], &mut panes, &layout);
+                    let bytes = key_to_bytes(key);
+                    if !bytes.is_empty() {
+                        send_to_focused_pty(&bytes, &mut panes, &layout);
+                    }
+                    continue;
+                }
+
+                if let termion::event::Key::Ctrl('a') = key {
+                    ctrl_a_pending = true;
+                    continue;
+                }
+
+                // Ctrl+C exit
+                if let termion::event::Key::Ctrl('c') = key {
+                    for (_, pane_data) in panes.iter_mut() {
+                        pane_data.pty.close();
+                    }
                     renderer.show_cursor();
                     renderer.clear_screen();
                     return Ok(());
+                }
+
+                let bytes = key_to_bytes(key);
+                if !bytes.is_empty() {
+                    send_to_focused_pty(&bytes, &mut panes, &layout);
                 }
             }
         }
@@ -165,49 +194,60 @@ fn main() -> Result<(), String> {
     Ok(())
 }
 
-fn handle_key_action(
-    bytes: &[u8],
+fn handle_ctrl_a_command(
+    key: termion::event::Key,
     panes: &mut HashMap<usize, PaneData>,
     layout: &mut layout::Layout,
 ) -> bool {
-    // Ctrl+C exit
-    if bytes.len() == 1 && bytes[0] == 3 {
-        for (_, pane_data) in panes.iter_mut() {
-            pane_data.pty.close();
+    use termion::event::Key;
+    match key {
+        Key::Ctrl('a') => {
+            send_to_focused_pty(&[1], panes, layout);
+            true
         }
-        return true;
+        Key::Char('h') | Key::Char('H') | Key::Ctrl('h') => {
+            let focused_id = layout.panes[layout.focused].id;
+            if layout.split_horizontal(focused_id).is_ok() {
+                let new_id = layout.panes[layout.focused].id;
+                spawn_new_pane(panes, new_id, layout);
+                resize_pty_for_pane(panes, focused_id, layout);
+            }
+            true
+        }
+        Key::Char('v') | Key::Char('V') => {
+            let focused_id = layout.panes[layout.focused].id;
+            if layout.split_vertical(focused_id).is_ok() {
+                let new_id = layout.panes[layout.focused].id;
+                spawn_new_pane(panes, new_id, layout);
+                resize_pty_for_pane(panes, focused_id, layout);
+            }
+            true
+        }
+        Key::Char('j') | Key::Char('J') => {
+            layout.navigate(layout::Direction::Down);
+            true
+        }
+        Key::Char('k') | Key::Char('K') => {
+            layout.navigate(layout::Direction::Up);
+            true
+        }
+        Key::Char('l') | Key::Char('L') => {
+            layout.navigate(layout::Direction::Right);
+            true
+        }
+        Key::Char('p') | Key::Char('P') | Key::Ctrl('p') => {
+            layout.navigate(layout::Direction::Left);
+            true
+        }
+        _ => false,
     }
+}
 
-    if let Some(action) = input::handle_input(bytes) {
-        match action {
-            input::InputAction::SendToPTY(data) => {
-                let focused_id = layout.panes[layout.focused].id;
-                if let Some(pane_data) = panes.get_mut(&focused_id) {
-                    pane_data.pty.write(&data).ok();
-                }
-            }
-            input::InputAction::SplitHorizontal => {
-                let focused_id = layout.panes[layout.focused].id;
-                if layout.split_horizontal(focused_id).is_ok() {
-                    let new_id = layout.panes[layout.focused].id;
-                    spawn_new_pane(panes, new_id, &layout);
-                    resize_pty_for_pane(panes, focused_id, &layout);
-                }
-            }
-            input::InputAction::SplitVertical => {
-                let focused_id = layout.panes[layout.focused].id;
-                if layout.split_vertical(focused_id).is_ok() {
-                    let new_id = layout.panes[layout.focused].id;
-                    spawn_new_pane(panes, new_id, &layout);
-                    resize_pty_for_pane(panes, focused_id, &layout);
-                }
-            }
-            input::InputAction::Navigate(dir) => {
-                layout.navigate(dir);
-            }
-        }
+fn send_to_focused_pty(data: &[u8], panes: &mut HashMap<usize, PaneData>, layout: &layout::Layout) {
+    let focused_id = layout.panes[layout.focused].id;
+    if let Some(pane_data) = panes.get_mut(&focused_id) {
+        pane_data.pty.write(data).ok();
     }
-    false
 }
 
 fn spawn_new_pane(panes: &mut HashMap<usize, PaneData>, pane_id: usize, layout: &layout::Layout) {
