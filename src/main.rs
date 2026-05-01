@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use termion::input::TermRead;
 use std::io;
+use std::os::unix::io::AsRawFd;
 
 mod buffer;
 mod pty;
@@ -20,83 +20,167 @@ fn main() -> Result<(), String> {
     let mut renderer = renderer::Renderer::new()?;
     renderer.hide_cursor();
     renderer.clear_screen();
-    
+
     let (terminal_width, terminal_height) = termion::terminal_size()
         .map_err(|e| format!("Failed to get terminal size: {}", e))?;
-    
+
     let mut layout = layout::Layout::new(terminal_width as usize, terminal_height as usize);
     let mut panes: HashMap<usize, PaneData> = HashMap::new();
-    
+
     let focused_pane_id = layout.panes[layout.focused].id;
     let initial_pty = pty::PTY::new(std::env::var("SHELL").unwrap_or_else(|_| "bash".to_string()).as_str(), &[])?;
+    initial_pty.set_window_size(terminal_width, terminal_height);
     panes.insert(focused_pane_id, PaneData {
         pty: initial_pty,
         cursor_x: 0,
         cursor_y: 0,
         style: buffer::Style::default(),
     });
-    
-    let stdin = io::stdin();
-    for c in stdin.keys() {
-        read_pty_output(&mut panes, &mut layout);
-        
+
+    let stdin_fd = io::stdin().as_raw_fd();
+    let mut stdin_buffer = [0u8; 64];
+    let mut sequence_buf: Vec<u8> = Vec::new();
+
+    loop {
+        // Build poll fd set: stdin + all PTY master fds
+        let mut poll_fds: Vec<libc::pollfd> = Vec::new();
+        poll_fds.push(libc::pollfd {
+            fd: stdin_fd,
+            events: libc::POLLIN,
+            revents: 0,
+        });
+        for pane_data in panes.values() {
+            poll_fds.push(libc::pollfd {
+                fd: pane_data.pty.master_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            });
+        }
+
+        let poll_result = unsafe {
+            libc::poll(poll_fds.as_mut_ptr(), poll_fds.len() as libc::nfds_t, 100)
+        };
+
+        if poll_result < 0 {
+            break;
+        }
+
+        // Check stdin for input
+        if poll_fds[0].revents & libc::POLLIN != 0 {
+            let n = unsafe {
+                libc::read(stdin_fd, stdin_buffer.as_mut_ptr() as *mut libc::c_void, stdin_buffer.len())
+            };
+            if n <= 0 {
+                break;
+            }
+            sequence_buf.extend_from_slice(&stdin_buffer[..n as usize]);
+            while let Some((key, consumed)) = parse_next_key(&sequence_buf) {
+                sequence_buf.drain(..consumed);
+                let bytes = key_to_bytes(key);
+                if handle_key_action(&bytes, &mut panes, &mut layout) {
+                    renderer.show_cursor();
+                    renderer.clear_screen();
+                    return Ok(());
+                }
+            }
+        }
+
+        // Read from any PTY that has data
+        for i in 1..poll_fds.len() {
+            if poll_fds[i].revents & libc::POLLIN != 0 {
+                let fd = poll_fds[i].fd;
+                if let Some((&pane_id, pane_data)) = panes.iter_mut().find(|(_, pd)| pd.pty.master_fd() == fd) {
+                    match pane_data.pty.read_nonblocking() {
+                        Ok(Some(output)) => {
+                            if !output.is_empty() {
+                                if let Some(pane) = layout.panes.iter_mut().find(|p| p.id == pane_id) {
+                                    let actions = ansi::parse(&String::from_utf8_lossy(&output));
+                                    process_pty_actions(pane, pane_data, &actions);
+                                }
+                            }
+                        }
+                        Ok(None) => {}
+                        Err(_) => {}
+                    }
+                }
+            }
+        }
+
+        // Check for dead panes
+        let mut panes_to_remove = Vec::new();
+        for (&pane_id, pane_data) in panes.iter() {
+            if !pane_data.pty.is_alive() {
+                panes_to_remove.push(pane_id);
+            }
+        }
+        for pane_id in panes_to_remove {
+            layout.remove_pane(pane_id);
+            panes.remove(&pane_id);
+        }
+
+        // Render all panes
         for pane in &layout.panes {
             let is_focused = pane.id == layout.panes[layout.focused].id;
             renderer.render_pane(pane, is_focused);
         }
-        
         renderer.flush();
-        
-        match c {
-            Ok(termion::event::Key::Ctrl('c')) => {
-                for (_, pane_data) in &mut panes {
-                    pane_data.pty.close();
-                }
-                break;
-            }
-            Ok(key) => {
-                let bytes = key_to_bytes(key);
-                if let Some(action) = input::handle_input(&bytes) {
-                    match action {
-                        input::InputAction::SendToPTY(data) => {
-                            let focused_id = layout.panes[layout.focused].id;
-                            if let Some(pane_data) = panes.get_mut(&focused_id) {
-                                pane_data.pty.write(&data).ok();
-                            }
-                        }
-                        input::InputAction::SplitHorizontal => {
-                            let focused_id = layout.panes[layout.focused].id;
-                            if let Ok(_) = layout.split_horizontal(focused_id) {
-                                let new_id = layout.panes[layout.focused].id;
-                                spawn_new_pane(&mut panes, new_id);
-                            }
-                        }
-                        input::InputAction::SplitVertical => {
-                            let focused_id = layout.panes[layout.focused].id;
-                            if let Ok(_) = layout.split_vertical(focused_id) {
-                                let new_id = layout.panes[layout.focused].id;
-                                spawn_new_pane(&mut panes, new_id);
-                            }
-                        }
-                        input::InputAction::Navigate(dir) => {
-                            layout.navigate(dir);
-                        }
-                    }
-                }
-            }
-            Err(_) => break,
-        }
     }
-    
+
     renderer.show_cursor();
     renderer.clear_screen();
-    
+
     Ok(())
 }
 
-fn spawn_new_pane(panes: &mut HashMap<usize, PaneData>, pane_id: usize) {
+fn handle_key_action(
+    bytes: &[u8],
+    panes: &mut HashMap<usize, PaneData>,
+    layout: &mut layout::Layout,
+) -> bool {
+    // Ctrl+C exit
+    if bytes.len() == 1 && bytes[0] == 3 {
+        for (_, pane_data) in panes.iter_mut() {
+            pane_data.pty.close();
+        }
+        return true;
+    }
+
+    if let Some(action) = input::handle_input(bytes) {
+        match action {
+            input::InputAction::SendToPTY(data) => {
+                let focused_id = layout.panes[layout.focused].id;
+                if let Some(pane_data) = panes.get_mut(&focused_id) {
+                    pane_data.pty.write(&data).ok();
+                }
+            }
+            input::InputAction::SplitHorizontal => {
+                let focused_id = layout.panes[layout.focused].id;
+                if layout.split_horizontal(focused_id).is_ok() {
+                    let new_id = layout.panes[layout.focused].id;
+                    spawn_new_pane(panes, new_id, layout);
+                }
+            }
+            input::InputAction::SplitVertical => {
+                let focused_id = layout.panes[layout.focused].id;
+                if layout.split_vertical(focused_id).is_ok() {
+                    let new_id = layout.panes[layout.focused].id;
+                    spawn_new_pane(panes, new_id, layout);
+                }
+            }
+            input::InputAction::Navigate(dir) => {
+                layout.navigate(dir);
+            }
+        }
+    }
+    false
+}
+
+fn spawn_new_pane(panes: &mut HashMap<usize, PaneData>, pane_id: usize, layout: &layout::Layout) {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "bash".to_string());
     let new_pty = pty::PTY::new(shell.as_str(), &[]).unwrap();
+    if let Some(pane) = layout.panes.iter().find(|p| p.id == pane_id) {
+        new_pty.set_window_size(pane.width as u16, pane.height as u16);
+    }
     panes.insert(pane_id, PaneData {
         pty: new_pty,
         cursor_x: 0,
@@ -105,29 +189,76 @@ fn spawn_new_pane(panes: &mut HashMap<usize, PaneData>, pane_id: usize) {
     });
 }
 
-fn read_pty_output(panes: &mut HashMap<usize, PaneData>, layout: &mut layout::Layout) {
-    let mut panes_to_remove = Vec::new();
-    
-    for pane_id in panes.keys().copied().collect::<Vec<_>>() {
-        if let Some(pane_data) = panes.get_mut(&pane_id) {
-            if let Ok(output) = pane_data.pty.read() {
-                if output.is_empty() && !pane_data.pty.is_alive() {
-                    panes_to_remove.push(pane_id);
-                    continue;
-                }
-                
-                if let Some(pane) = layout.panes.iter_mut().find(|p| p.id == pane_id) {
-                    let actions = ansi::parse(&String::from_utf8_lossy(&output));
-                    process_pty_actions(pane, pane_data, &actions);
+fn parse_next_key(buf: &[u8]) -> Option<(termion::event::Key, usize)> {
+    if buf.is_empty() {
+        return None;
+    }
+
+    // Escape sequences
+    if buf[0] == 27 && buf.len() >= 3 && buf[1] == b'[' {
+        match buf[2] {
+            b'A' => return Some((termion::event::Key::Up, 3)),
+            b'B' => return Some((termion::event::Key::Down, 3)),
+            b'C' => return Some((termion::event::Key::Right, 3)),
+            b'D' => return Some((termion::event::Key::Left, 3)),
+            b'H' => return Some((termion::event::Key::Home, 3)),
+            b'F' => return Some((termion::event::Key::End, 3)),
+            _ => {}
+        }
+    }
+
+    // Ctrl+Shift shortcut: Ctrl+R (0x12) prefix
+    if buf.len() >= 2 && buf[0] == 0x12 {
+        use termion::event::Key;
+        let key = match buf[1] {
+            b'H' | b'h' => Key::Char('H'),
+            b'V' | b'v' => Key::Char('V'),
+            _ => return Some((Key::Ctrl(buf[1] as char), 2)),
+        };
+        return Some((key, 2));
+    }
+
+    // Ctrl+char
+    if buf[0] < 32 && buf[0] != 27 && buf[0] != 13 && buf[0] != 10 {
+        let c = (buf[0] + 96) as char;
+        return Some((termion::event::Key::Ctrl(c), 1));
+    }
+
+    // Enter
+    if buf[0] == 13 {
+        return Some((termion::event::Key::Char('\n'), 1));
+    }
+
+    // Backspace
+    if buf[0] == 127 {
+        return Some((termion::event::Key::Backspace, 1));
+    }
+
+    // Alt+char
+    if buf[0] == 27 && buf.len() >= 2 {
+        return Some((termion::event::Key::Alt(buf[1] as char), 2));
+    }
+
+    // Plain char (UTF-8)
+    if buf[0] >= 32 {
+        let len = match buf[0] {
+            0..=0x7F => 1,
+            0xC0..=0xDF => 2,
+            0xE0..=0xEF => 3,
+            0xF0..=0xF7 => 4,
+            _ => 1,
+        };
+        if buf.len() >= len {
+            if let Ok(s) = std::str::from_utf8(&buf[..len]) {
+                if let Some(c) = s.chars().next() {
+                    return Some((termion::event::Key::Char(c), len));
                 }
             }
         }
+        return Some((termion::event::Key::Char(buf[0] as char), 1));
     }
-    
-    for pane_id in panes_to_remove {
-        layout.remove_pane(pane_id);
-        panes.remove(&pane_id);
-    }
+
+    None
 }
 
 fn process_pty_actions(pane: &mut layout::Pane, pane_data: &mut PaneData, actions: &[ansi::Action]) {
@@ -144,8 +275,8 @@ fn process_pty_actions(pane: &mut layout::Pane, pane_data: &mut PaneData, action
                 }
             }
             ansi::Action::MoveCursor(x, y) => {
-                pane_data.cursor_x = *x;
-                pane_data.cursor_y = *y;
+                pane_data.cursor_x = (*x).min(pane.width.saturating_sub(1));
+                pane_data.cursor_y = (*y).min(pane.height.saturating_sub(1));
             }
             ansi::Action::SetFgColor(color) => {
                 pane_data.style.fg_color = buffer_color_to_color(*color);
@@ -157,8 +288,6 @@ fn process_pty_actions(pane: &mut layout::Pane, pane_data: &mut PaneData, action
                 pane_data.style.bold = *bold;
             }
             ansi::Action::Reset => {
-                pane_data.cursor_x = 0;
-                pane_data.cursor_y = 0;
                 pane_data.style = buffer::Style::default();
             }
             ansi::Action::Newline => {
@@ -219,6 +348,8 @@ fn key_to_bytes(key: termion::event::Key) -> Vec<u8> {
         Key::Left => vec![27, 91, 68],
         Key::Right => vec![27, 91, 67],
         Key::Backspace => vec![127],
+        Key::Home => vec![27, 91, 72],
+        Key::End => vec![27, 91, 70],
         _ => vec![],
     }
 }

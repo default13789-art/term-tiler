@@ -79,6 +79,12 @@ impl PTY {
 
         unsafe {
             close(slave);
+
+            // Set master fd to non-blocking
+            let flags = libc::fcntl(master, libc::F_GETFL, 0);
+            if flags >= 0 {
+                libc::fcntl(master, libc::F_SETFL, flags | libc::O_NONBLOCK);
+            }
         }
 
         Ok(PTY { pid, master })
@@ -105,6 +111,29 @@ impl PTY {
                 Ok(buf[..read as usize].to_vec())
             }
         }
+    }
+
+    pub fn read_nonblocking(&self) -> Result<Option<Vec<u8>>, String> {
+        let mut buf = [0u8; 8192];
+        unsafe {
+            let read = libc::read(self.master, buf.as_mut_ptr() as *mut libc::c_void, buf.len());
+            if read < 0 {
+                let err = *libc::__errno_location();
+                if err == libc::EAGAIN || err == libc::EWOULDBLOCK {
+                    Ok(None)
+                } else {
+                    Err(format!("Read failed: {}", std::io::Error::last_os_error()))
+                }
+            } else if read == 0 {
+                Ok(None)
+            } else {
+                Ok(Some(buf[..read as usize].to_vec()))
+            }
+        }
+    }
+
+    pub fn master_fd(&self) -> i32 {
+        self.master
     }
 
     pub fn is_alive(&self) -> bool {
