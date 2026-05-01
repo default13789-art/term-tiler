@@ -13,6 +13,7 @@ struct PaneData {
     pty: pty::PTY,
     cursor_x: usize,
     cursor_y: usize,
+    style: buffer::Style,
 }
 
 fn main() -> Result<(), String> {
@@ -32,6 +33,7 @@ fn main() -> Result<(), String> {
         pty: initial_pty,
         cursor_x: 0,
         cursor_y: 0,
+        style: buffer::Style::default(),
     });
     
     let stdin = io::stdin();
@@ -98,6 +100,7 @@ fn spawn_new_pane(panes: &mut HashMap<usize, PaneData>) {
         pty: new_pty,
         cursor_x: 0,
         cursor_y: 0,
+        style: buffer::Style::default(),
     });
 }
 
@@ -130,7 +133,7 @@ fn process_pty_actions(pane: &mut layout::Pane, pane_data: &mut PaneData, action
     for action in actions {
         match action {
             ansi::Action::Write(ch) => {
-                pane.buffer.write(pane_data.cursor_x, pane_data.cursor_y, *ch, pane.style);
+                pane.buffer.write(pane_data.cursor_x, pane_data.cursor_y, *ch, pane_data.style);
                 pane_data.cursor_x += 1;
                 if pane_data.cursor_x >= pane.width {
                     pane_data.cursor_x = 0;
@@ -142,10 +145,10 @@ fn process_pty_actions(pane: &mut layout::Pane, pane_data: &mut PaneData, action
                 pane_data.cursor_y = *y;
             }
             ansi::Action::SetFgColor(color) => {
-                pane.style.fg_color = buffer_color_to_color(*color);
+                pane_data.style.fg_color = buffer_color_to_color(*color);
             }
             ansi::Action::SetBgColor(color) => {
-                pane.style.bg_color = buffer_color_to_color(*color);
+                pane_data.style.bg_color = buffer_color_to_color(*color);
             }
             ansi::Action::Reset => {
                 pane_data.cursor_x = 0;
@@ -153,7 +156,7 @@ fn process_pty_actions(pane: &mut layout::Pane, pane_data: &mut PaneData, action
             }
             ansi::Action::ClearLine => {
                 for x in 0..pane.width {
-                    pane.buffer.write(x, pane_data.cursor_y, ' ', buffer::Style::default());
+                    pane.buffer.write(x, pane_data.cursor_y, ' ', pane_data.style);
                 }
                 pane_data.cursor_x = 0;
             }
