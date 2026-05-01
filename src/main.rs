@@ -201,9 +201,19 @@ fn buffer_color_to_color(color: ansi::Color) -> buffer::Color {
 fn key_to_bytes(key: termion::event::Key) -> Vec<u8> {
     use termion::event::Key;
     match key {
-        Key::Char(c) => vec![c as u8],
+        Key::Char(c) => {
+            let mut buf = [0u8; 4];
+            c.encode_utf8(&mut buf);
+            buf[..c.len_utf8()].to_vec()
+        }
         Key::Ctrl(c) => vec![c as u8 - 96],
-        Key::Alt(c) => vec![27, c as u8],
+        Key::Alt(c) => {
+            let mut buf = vec![27];
+            let mut enc = [0u8; 4];
+            c.encode_utf8(&mut enc);
+            buf.extend_from_slice(&enc[..c.len_utf8()]);
+            buf
+        }
         Key::Up => vec![27, 91, 65],
         Key::Down => vec![27, 91, 66],
         Key::Left => vec![27, 91, 68],
