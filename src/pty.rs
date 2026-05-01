@@ -162,6 +162,7 @@ impl PTY {
         };
         unsafe {
             libc::ioctl(self.master, libc::TIOCSWINSZ, &ws);
+            libc::kill(self.pid, libc::SIGWINCH);
         }
     }
 }

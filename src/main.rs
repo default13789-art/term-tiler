@@ -160,14 +160,16 @@ fn handle_key_action(
                 let focused_id = layout.panes[layout.focused].id;
                 if layout.split_horizontal(focused_id).is_ok() {
                     let new_id = layout.panes[layout.focused].id;
-                    spawn_new_pane(panes, new_id, layout);
+                    spawn_new_pane(panes, new_id, &layout);
+                    resize_pty_for_pane(panes, focused_id, &layout);
                 }
             }
             input::InputAction::SplitVertical => {
                 let focused_id = layout.panes[layout.focused].id;
                 if layout.split_vertical(focused_id).is_ok() {
                     let new_id = layout.panes[layout.focused].id;
-                    spawn_new_pane(panes, new_id, layout);
+                    spawn_new_pane(panes, new_id, &layout);
+                    resize_pty_for_pane(panes, focused_id, &layout);
                 }
             }
             input::InputAction::Navigate(dir) => {
@@ -196,6 +198,17 @@ fn spawn_new_pane(panes: &mut HashMap<usize, PaneData>, pane_id: usize, layout: 
         cursor_y: 0,
         style: buffer::Style::default(),
     });
+}
+
+fn resize_pty_for_pane(panes: &mut HashMap<usize, PaneData>, pane_id: usize, layout: &layout::Layout) {
+    if let (Some(pane), Some(pane_data)) = (
+        layout.panes.iter().find(|p| p.id == pane_id),
+        panes.get_mut(&pane_id),
+    ) {
+        pane_data.pty.set_window_size(pane.width as u16, pane.height as u16);
+        pane_data.cursor_x = pane_data.cursor_x.min(pane.width.saturating_sub(1));
+        pane_data.cursor_y = pane_data.cursor_y.min(pane.height.saturating_sub(1));
+    }
 }
 
 fn parse_next_key(buf: &[u8]) -> Option<(termion::event::Key, usize)> {
