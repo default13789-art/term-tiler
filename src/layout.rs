@@ -56,16 +56,18 @@ impl Layout {
             return Err("Pane too small to split".to_string());
         }
 
-        let new_height = pane.height / 2;
-        pane.height = new_height;
+        let original_height = pane.height;
+        let top_height = original_height / 2;
+        let bottom_height = original_height - top_height;
+        pane.height = top_height;
 
         let new_pane = Pane {
             id: self.next_id,
             x: pane.x,
-            y: pane.y + new_height,
+            y: pane.y + top_height,
             width: pane.width,
-            height: pane.height,
-            buffer: buffer::Buffer::new(pane.width, pane.height),
+            height: bottom_height,
+            buffer: buffer::Buffer::new(pane.width, bottom_height),
             style: buffer::Style::default(),
         };
 
@@ -85,16 +87,18 @@ impl Layout {
             return Err("Pane too small to split".to_string());
         }
 
-        let new_width = pane.width / 2;
-        pane.width = new_width;
+        let original_width = pane.width;
+        let left_width = original_width / 2;
+        let right_width = original_width - left_width;
+        pane.width = left_width;
 
         let new_pane = Pane {
             id: self.next_id,
-            x: pane.x + new_width,
+            x: pane.x + left_width,
             y: pane.y,
-            width: pane.width,
+            width: right_width,
             height: pane.height,
-            buffer: buffer::Buffer::new(pane.width, pane.height),
+            buffer: buffer::Buffer::new(right_width, pane.height),
             style: buffer::Style::default(),
         };
 
