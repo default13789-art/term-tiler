@@ -101,6 +101,9 @@ impl PTY {
                 );
                 if written < 0 {
                     let err = *libc::__errno_location();
+                    if err == libc::EINTR {
+                        continue;
+                    }
                     if err == libc::EAGAIN || err == libc::EWOULDBLOCK {
                         retries += 1;
                         if retries > 100 {
