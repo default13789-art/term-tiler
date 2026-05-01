@@ -33,9 +33,8 @@ pub fn parse(input: &str) -> Vec<Action> {
         if ch == '\x1B' {
             if let Some(&'[') = chars.peek() {
                 chars.next();
-                if let Some(seq) = parse_escape_sequence(&mut chars) {
-                    actions.push(seq);
-                }
+                let seq_actions = parse_escape_sequence(&mut chars);
+                actions.extend(seq_actions);
             }
         } else if ch == '\n' {
             actions.push(Action::Newline);
@@ -49,7 +48,7 @@ pub fn parse(input: &str) -> Vec<Action> {
     actions
 }
 
-fn parse_escape_sequence(chars: &mut std::iter::Peekable<std::str::Chars>) -> Option<Action> {
+fn parse_escape_sequence(chars: &mut std::iter::Peekable<std::str::Chars>) -> Vec<Action> {
     let mut params = String::new();
 
     while let Some(&ch) = chars.peek() {
@@ -69,47 +68,52 @@ fn parse_escape_sequence(chars: &mut std::iter::Peekable<std::str::Chars>) -> Op
                     .collect();
                 let row = parts.get(0).copied().unwrap_or(1).saturating_sub(1);
                 let col = parts.get(1).copied().unwrap_or(1).saturating_sub(1);
-                Some(Action::MoveCursor(row, col))
+                vec![Action::MoveCursor(row, col)]
             }
-            'K' => Some(Action::ClearLine),
-            'J' => Some(Action::ClearScreen),
+            'K' => vec![Action::ClearLine],
+            'J' => vec![Action::ClearScreen],
             'm' => {
                 let codes: Vec<u32> = params.split(';')
                     .filter_map(|s| s.parse().ok())
                     .collect();
                 parse_color_codes(&codes)
             }
-            _ => None,
+            _ => vec![],
         }
     } else {
-        None
+        vec![]
     }
 }
 
-fn parse_color_codes(codes: &[u32]) -> Option<Action> {
+fn parse_color_codes(codes: &[u32]) -> Vec<Action> {
+    let mut actions = Vec::new();
     for &code in codes {
         match code {
-            0 => return Some(Action::Reset),
-            30 => return Some(Action::SetFgColor(Color::Black)),
-            31 => return Some(Action::SetFgColor(Color::Red)),
-            32 => return Some(Action::SetFgColor(Color::Green)),
-            33 => return Some(Action::SetFgColor(Color::Yellow)),
-            34 => return Some(Action::SetFgColor(Color::Blue)),
-            35 => return Some(Action::SetFgColor(Color::Magenta)),
-            36 => return Some(Action::SetFgColor(Color::Cyan)),
-            37 => return Some(Action::SetFgColor(Color::White)),
-            40 => return Some(Action::SetBgColor(Color::Black)),
-            41 => return Some(Action::SetBgColor(Color::Red)),
-            42 => return Some(Action::SetBgColor(Color::Green)),
-            43 => return Some(Action::SetBgColor(Color::Yellow)),
-            44 => return Some(Action::SetBgColor(Color::Blue)),
-            45 => return Some(Action::SetBgColor(Color::Magenta)),
-            46 => return Some(Action::SetBgColor(Color::Cyan)),
-            47 => return Some(Action::SetBgColor(Color::White)),
-            _ => continue,
+            0 => actions.push(Action::Reset),
+            1 => actions.push(Action::SetBold(true)),
+            22 => actions.push(Action::SetBold(false)),
+            30 => actions.push(Action::SetFgColor(Color::Black)),
+            31 => actions.push(Action::SetFgColor(Color::Red)),
+            32 => actions.push(Action::SetFgColor(Color::Green)),
+            33 => actions.push(Action::SetFgColor(Color::Yellow)),
+            34 => actions.push(Action::SetFgColor(Color::Blue)),
+            35 => actions.push(Action::SetFgColor(Color::Magenta)),
+            36 => actions.push(Action::SetFgColor(Color::Cyan)),
+            37 => actions.push(Action::SetFgColor(Color::White)),
+            39 => actions.push(Action::SetFgColor(Color::Default)),
+            40 => actions.push(Action::SetBgColor(Color::Black)),
+            41 => actions.push(Action::SetBgColor(Color::Red)),
+            42 => actions.push(Action::SetBgColor(Color::Green)),
+            43 => actions.push(Action::SetBgColor(Color::Yellow)),
+            44 => actions.push(Action::SetBgColor(Color::Blue)),
+            45 => actions.push(Action::SetBgColor(Color::Magenta)),
+            46 => actions.push(Action::SetBgColor(Color::Cyan)),
+            47 => actions.push(Action::SetBgColor(Color::White)),
+            49 => actions.push(Action::SetBgColor(Color::Default)),
+            _ => {}
         }
     }
-    None
+    actions
 }
 
 #[cfg(test)]
@@ -144,6 +148,26 @@ mod tests {
             Action::Write('C'),
             Action::Reset,
             Action::Write('D'),
+        ]);
+    }
+
+    #[test]
+    fn test_compound_colors() {
+        let result = parse("\x1B[1;31;42m");
+        assert_eq!(result, vec![
+            Action::SetBold(true),
+            Action::SetFgColor(Color::Red),
+            Action::SetBgColor(Color::Green),
+        ]);
+    }
+
+    #[test]
+    fn test_newline() {
+        let result = parse("A\nB");
+        assert_eq!(result, vec![
+            Action::Write('A'),
+            Action::Newline,
+            Action::Write('B'),
         ]);
     }
 }
