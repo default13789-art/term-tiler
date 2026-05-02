@@ -271,7 +271,7 @@ impl Renderer {
             for gy in 0..glyph_h {
                 for gx in 0..glyph_w {
                     let coverage = bitmap[gy * glyph_w + gx];
-                    if coverage < 50 { // Low threshold to catch more pixels
+                    if coverage < 50 {
                         continue;
                     }
                     let sx = x_start + gx;
@@ -279,10 +279,10 @@ impl Renderer {
                     if sx >= cw || sy >= cell_h {
                         continue;
                     }
-                    // Draw 2x2 block for each glyph pixel
+                    // Draw 2x2 block - position within cell, not multiplied
                     let _ = self.canvas.fill_rect(Rect::new(
-                        (pixel_x + sx * 2) as i32,
-                        (pixel_y + sy * 2) as i32,
+                        (pixel_x + sx) as i32,
+                        (pixel_y + sy) as i32,
                         2,
                         2,
                     ));
