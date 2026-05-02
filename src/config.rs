@@ -188,8 +188,13 @@ fn matches_font(path: &std::path::Path, font_family: &str, extensions: &[&str]) 
     let family_lower = font_family.to_lowercase();
     if name.contains(&family_lower) {
         if let Some(ext) = path.extension() {
-            if extensions.contains(&ext.to_string_lossy().as_ref()) {
-                return Some(path.to_path_buf());
+            let ext_str: String = ext.to_string_lossy().into_owned();
+            // Prepend dot to match extensions list format (e.g., ".ttf")
+            let ext_with_dot = format!(".{}", ext_str);
+            for &allowed_ext in extensions {
+                if allowed_ext == ext_with_dot {
+                    return Some(path.to_path_buf());
+                }
             }
         }
     }
