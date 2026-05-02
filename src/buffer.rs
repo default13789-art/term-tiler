@@ -66,7 +66,7 @@ impl Color {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct Cell {
     pub ch: char,
     pub style: Style,
