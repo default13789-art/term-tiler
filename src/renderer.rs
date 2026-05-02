@@ -282,17 +282,21 @@ impl Renderer {
                     let b = (fg.2 as f32 * alpha + bg.2 as f32 * (1.0 - alpha)) as u8;
 
                     self.canvas.set_draw_color(Color::RGB(r, g, b));
-                    let _ = self.canvas.draw_line(
-                        sdl2::rect::Point::new((pixel_x + sx) as i32, (pixel_y + sy) as i32),
-                        sdl2::rect::Point::new((pixel_x + sx) as i32, (pixel_y + sy) as i32),
-                    );
+                    let _ = self.canvas.fill_rect(Rect::new(
+                        (pixel_x + sx) as i32,
+                        (pixel_y + sy) as i32,
+                        1,
+                        1,
+                    ));
 
                     // Fake bold: also draw 1px to the right
                     if bold && sx + 1 < cw {
-                        let _ = self.canvas.draw_line(
-                            sdl2::rect::Point::new((pixel_x + sx + 1) as i32, (pixel_y + sy) as i32),
-                            sdl2::rect::Point::new((pixel_x + sx + 1) as i32, (pixel_y + sy) as i32),
-                        );
+                        let _ = self.canvas.fill_rect(Rect::new(
+                            (pixel_x + sx + 1) as i32,
+                            (pixel_y + sy) as i32,
+                            1,
+                            1,
+                        ));
                     }
                 }
             }
