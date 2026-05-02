@@ -4,3 +4,4 @@ pub mod layout;
 pub mod renderer;
 pub mod ansi;
 pub mod input;
+pub mod config;
