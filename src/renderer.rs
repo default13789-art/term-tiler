@@ -123,6 +123,16 @@ impl Renderer {
         ));
         self.canvas.clear();
 
+        // TEST: Draw a bright red box in the center to verify rendering works
+        let (win_w, win_h) = self.canvas.window().size();
+        self.canvas.set_draw_color(Color::RGB(255, 0, 0));
+        let _ = self.canvas.fill_rect(Rect::new(
+            (win_w / 2 - 20) as i32,
+            (win_h / 2 - 20) as i32,
+            40,
+            40,
+        ));
+
         let tab_bar_pixels = if layout.tabs.len() > 1 {
             self.cell_height
         } else {
@@ -266,12 +276,12 @@ impl Renderer {
             let baseline = cell_h as f32 * 0.8;
             let y_start = (baseline - glyph_h as f32 + metrics.bounds.ymin.abs()).max(0.0) as usize;
 
-            // Draw each glyph pixel as a 2x2 block for visibility
+            // Set color and draw glyph pixels
             self.canvas.set_draw_color(Color::RGB(fg.0, fg.1, fg.2));
             for gy in 0..glyph_h {
                 for gx in 0..glyph_w {
                     let coverage = bitmap[gy * glyph_w + gx];
-                    if coverage < 50 {
+                    if coverage < 64 {
                         continue;
                     }
                     let sx = x_start + gx;
@@ -279,12 +289,12 @@ impl Renderer {
                     if sx >= cw || sy >= cell_h {
                         continue;
                     }
-                    // Draw 2x2 block - position within cell, not multiplied
+                    // Draw each glyph pixel as a 1x1 square (smaller to see more)
                     let _ = self.canvas.fill_rect(Rect::new(
                         (pixel_x + sx) as i32,
                         (pixel_y + sy) as i32,
-                        2,
-                        2,
+                        1,
+                        1,
                     ));
                 }
             }
