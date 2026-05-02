@@ -17,12 +17,19 @@ pub struct Pane {
     pub buffer: buffer::Buffer,
 }
 
-pub struct Layout {
+pub struct Tab {
+    pub id: usize,
     pub panes: Vec<Pane>,
     pub focused: usize,
+}
+
+pub struct Layout {
+    pub tabs: Vec<Tab>,
+    pub active_tab: usize,
     pub width: usize,
     pub height: usize,
-    next_id: usize,
+    next_pane_id: usize,
+    next_tab_id: usize,
 }
 
 impl Layout {
@@ -37,19 +44,58 @@ impl Layout {
         };
 
         Layout {
-            panes: vec![initial_pane],
-            focused: 0,
+            tabs: vec![Tab {
+                id: 0,
+                panes: vec![initial_pane],
+                focused: 0,
+            }],
+            active_tab: 0,
             width,
             height,
-            next_id: 1,
+            next_pane_id: 1,
+            next_tab_id: 1,
         }
     }
 
+    pub fn active_tab(&self) -> &Tab {
+        &self.tabs[self.active_tab]
+    }
+
+    pub fn active_tab_mut(&mut self) -> &mut Tab {
+        &mut self.tabs[self.active_tab]
+    }
+
+    pub fn active_panes(&self) -> &[Pane] {
+        &self.tabs[self.active_tab].panes
+    }
+
+    pub fn active_panes_mut(&mut self) -> &mut Vec<Pane> {
+        &mut self.tabs[self.active_tab].panes
+    }
+
+    pub fn focused_pane(&self) -> &Pane {
+        &self.tabs[self.active_tab].panes[self.tabs[self.active_tab].focused]
+    }
+
+    pub fn focused_pane_mut(&mut self) -> &mut Pane {
+        let focused = self.tabs[self.active_tab].focused;
+        &mut self.tabs[self.active_tab].panes[focused]
+    }
+
+    pub fn focused_pane_id(&self) -> usize {
+        self.focused_pane().id
+    }
+
+    pub fn focused_idx(&self) -> usize {
+        self.tabs[self.active_tab].focused
+    }
+
     pub fn split_horizontal(&mut self, pane_id: usize) -> Result<(), String> {
-        let pane_index = self.panes.iter().position(|p| p.id == pane_id)
+        let tab = &mut self.tabs[self.active_tab];
+        let pane_index = tab.panes.iter().position(|p| p.id == pane_id)
             .ok_or("Pane not found")?;
 
-        let pane = &mut self.panes[pane_index];
+        let pane = &mut tab.panes[pane_index];
         if pane.height < 4 {
             return Err("Pane too small to split".to_string());
         }
@@ -61,7 +107,7 @@ impl Layout {
         pane.buffer.resize(pane.width, top_height);
 
         let new_pane = Pane {
-            id: self.next_id,
+            id: self.next_pane_id,
             x: pane.x,
             y: pane.y + top_height,
             width: pane.width,
@@ -69,18 +115,19 @@ impl Layout {
             buffer: buffer::Buffer::new(pane.width, bottom_height),
         };
 
-        self.next_id += 1;
-        self.panes.push(new_pane);
-        self.focused = self.panes.len() - 1;
+        self.next_pane_id += 1;
+        tab.panes.push(new_pane);
+        tab.focused = tab.panes.len() - 1;
 
         Ok(())
     }
 
     pub fn split_vertical(&mut self, pane_id: usize) -> Result<(), String> {
-        let pane_index = self.panes.iter().position(|p| p.id == pane_id)
+        let tab = &mut self.tabs[self.active_tab];
+        let pane_index = tab.panes.iter().position(|p| p.id == pane_id)
             .ok_or("Pane not found")?;
 
-        let pane = &mut self.panes[pane_index];
+        let pane = &mut tab.panes[pane_index];
         if pane.width < 4 {
             return Err("Pane too small to split".to_string());
         }
@@ -92,7 +139,7 @@ impl Layout {
         pane.buffer.resize(left_width, pane.height);
 
         let new_pane = Pane {
-            id: self.next_id,
+            id: self.next_pane_id,
             x: pane.x + left_width,
             y: pane.y,
             width: right_width,
@@ -100,28 +147,30 @@ impl Layout {
             buffer: buffer::Buffer::new(right_width, pane.height),
         };
 
-        self.next_id += 1;
-        self.panes.push(new_pane);
-        self.focused = self.panes.len() - 1;
+        self.next_pane_id += 1;
+        tab.panes.push(new_pane);
+        tab.focused = tab.panes.len() - 1;
 
         Ok(())
     }
 
     pub fn navigate(&mut self, direction: Direction) {
-        let current = &self.panes[self.focused];
-        let target = self.find_adjacent_pane(current, direction);
+        let tab = &self.tabs[self.active_tab];
+        let current = &tab.panes[tab.focused];
+        let target = Self::find_adjacent_pane(&tab.panes, current, direction);
 
         if let Some(target_id) = target {
-            if let Some(idx) = self.panes.iter().position(|p| p.id == target_id) {
-                self.focused = idx;
+            let tab = &mut self.tabs[self.active_tab];
+            if let Some(idx) = tab.panes.iter().position(|p| p.id == target_id) {
+                tab.focused = idx;
             }
         }
     }
 
-    fn find_adjacent_pane(&self, pane: &Pane, direction: Direction) -> Option<usize> {
+    fn find_adjacent_pane(panes: &[Pane], pane: &Pane, direction: Direction) -> Option<usize> {
         let mut best_candidate: Option<(usize, f64)> = None;
 
-        for other in &self.panes {
+        for other in panes {
             if other.id == pane.id {
                 continue;
             }
@@ -169,29 +218,77 @@ impl Layout {
     pub fn resize(&mut self, new_width: usize, new_height: usize) {
         self.width = new_width;
         self.height = new_height;
-        for pane in &mut self.panes {
-            pane.width = pane.width.min(new_width);
-            pane.height = pane.height.min(new_height);
-            pane.buffer.resize(pane.width, pane.height);
+        for tab in &mut self.tabs {
+            for pane in &mut tab.panes {
+                pane.width = pane.width.min(new_width);
+                pane.height = pane.height.min(new_height);
+                pane.buffer.resize(pane.width, pane.height);
+            }
         }
     }
 
     pub fn remove_pane(&mut self, pane_id: usize) {
-        self.panes.retain(|p| p.id != pane_id);
-        if self.panes.is_empty() {
+        let tab = &mut self.tabs[self.active_tab];
+        tab.panes.retain(|p| p.id != pane_id);
+        if tab.panes.is_empty() {
             let initial_pane = Pane {
-                id: self.next_id,
+                id: self.next_pane_id,
                 x: 0,
                 y: 0,
                 width: self.width,
                 height: self.height,
                 buffer: buffer::Buffer::new(self.width, self.height),
             };
-            self.next_id += 1;
-            self.panes.push(initial_pane);
+            self.next_pane_id += 1;
+            tab.panes.push(initial_pane);
         }
-        if self.focused >= self.panes.len() {
-            self.focused = self.panes.len() - 1;
+        if tab.focused >= tab.panes.len() {
+            tab.focused = tab.panes.len() - 1;
+        }
+    }
+
+    pub fn new_tab(&mut self) -> usize {
+        let tab_id = self.next_tab_id;
+        self.next_tab_id += 1;
+
+        let initial_pane = Pane {
+            id: self.next_pane_id,
+            x: 0,
+            y: 0,
+            width: self.width,
+            height: self.height,
+            buffer: buffer::Buffer::new(self.width, self.height),
+        };
+        self.next_pane_id += 1;
+
+        self.tabs.push(Tab {
+            id: tab_id,
+            panes: vec![initial_pane],
+            focused: 0,
+        });
+        self.active_tab = self.tabs.len() - 1;
+        tab_id
+    }
+
+    pub fn close_tab(&mut self) {
+        if self.tabs.len() <= 1 {
+            return;
+        }
+        self.tabs.remove(self.active_tab);
+        if self.active_tab >= self.tabs.len() {
+            self.active_tab = self.tabs.len() - 1;
+        }
+    }
+
+    pub fn next_tab(&mut self) {
+        if self.tabs.len() > 1 {
+            self.active_tab = (self.active_tab + 1) % self.tabs.len();
+        }
+    }
+
+    pub fn prev_tab(&mut self) {
+        if self.tabs.len() > 1 {
+            self.active_tab = (self.active_tab + self.tabs.len() - 1) % self.tabs.len();
         }
     }
 }
@@ -203,22 +300,23 @@ mod tests {
     #[test]
     fn test_layout_creation() {
         let layout = Layout::new(80, 24);
-        assert_eq!(layout.panes.len(), 1);
-        assert_eq!(layout.focused, 0);
+        assert_eq!(layout.tabs.len(), 1);
+        assert_eq!(layout.tabs[0].panes.len(), 1);
+        assert_eq!(layout.active_tab, 0);
     }
 
     #[test]
     fn test_horizontal_split() {
         let mut layout = Layout::new(80, 24);
         layout.split_horizontal(0).unwrap();
-        assert_eq!(layout.panes.len(), 2);
+        assert_eq!(layout.tabs[0].panes.len(), 2);
     }
 
     #[test]
     fn test_vertical_split() {
         let mut layout = Layout::new(80, 24);
         layout.split_vertical(0).unwrap();
-        assert_eq!(layout.panes.len(), 2);
+        assert_eq!(layout.tabs[0].panes.len(), 2);
     }
 
     #[test]
@@ -226,14 +324,72 @@ mod tests {
         let mut layout = Layout::new(80, 24);
         layout.split_horizontal(0).unwrap();
         layout.navigate(Direction::Down);
-        assert_eq!(layout.focused, 1);
+        assert_eq!(layout.tabs[0].focused, 1);
     }
 
     #[test]
     fn test_boundary_navigation() {
         let mut layout = Layout::new(80, 24);
-        let original = layout.focused;
+        let original = layout.tabs[0].focused;
         layout.navigate(Direction::Up);
-        assert_eq!(layout.focused, original);
+        assert_eq!(layout.tabs[0].focused, original);
+    }
+
+    #[test]
+    fn test_new_tab() {
+        let mut layout = Layout::new(80, 24);
+        layout.new_tab();
+        assert_eq!(layout.tabs.len(), 2);
+        assert_eq!(layout.active_tab, 1);
+    }
+
+    #[test]
+    fn test_close_tab() {
+        let mut layout = Layout::new(80, 24);
+        layout.new_tab();
+        layout.close_tab();
+        assert_eq!(layout.tabs.len(), 1);
+        assert_eq!(layout.active_tab, 0);
+    }
+
+    #[test]
+    fn test_close_last_tab_does_nothing() {
+        let mut layout = Layout::new(80, 24);
+        layout.close_tab();
+        assert_eq!(layout.tabs.len(), 1);
+    }
+
+    #[test]
+    fn test_next_prev_tab() {
+        let mut layout = Layout::new(80, 24);
+        layout.new_tab();
+        layout.new_tab();
+        assert_eq!(layout.active_tab, 2);
+        layout.prev_tab();
+        assert_eq!(layout.active_tab, 1);
+        layout.next_tab();
+        assert_eq!(layout.active_tab, 2);
+        layout.next_tab();
+        assert_eq!(layout.active_tab, 0); // wraps
+    }
+
+    #[test]
+    fn test_split_in_different_tabs() {
+        let mut layout = Layout::new(80, 24);
+        layout.split_horizontal(0).unwrap();
+        assert_eq!(layout.tabs[0].panes.len(), 2);
+        layout.new_tab();
+        assert_eq!(layout.tabs[1].panes.len(), 1);
+        layout.split_vertical(layout.focused_pane_id()).unwrap();
+        assert_eq!(layout.tabs[1].panes.len(), 2);
+    }
+
+    #[test]
+    fn test_active_panes_accessors() {
+        let mut layout = Layout::new(80, 24);
+        assert_eq!(layout.active_panes().len(), 1);
+        assert_eq!(layout.focused_pane_id(), 0);
+        layout.split_horizontal(0).unwrap();
+        assert_eq!(layout.active_panes().len(), 2);
     }
 }
