@@ -515,7 +515,7 @@ impl Renderer {
 pub struct PaneData {
     pub cursor_x: usize,
     pub cursor_y: usize,
-    pub saved_cursor: Option<(usize, usize)>,
+    pub saved_cursor: Option<(usize, usize, bool)>,
     pub style: buffer::Style,
 }
 

@@ -14,7 +14,7 @@ struct PaneState {
     pty: pty::PTY,
     cursor_x: usize,
     cursor_y: usize,
-    saved_cursor: Option<(usize, usize)>,
+    saved_cursor: Option<(usize, usize, bool)>,
     style: buffer::Style,
     wrap_pending: bool,
 }
@@ -370,13 +370,15 @@ fn process_pty_actions(pane: &mut layout::Pane, ps: &mut PaneState, actions: &[a
                 ps.cursor_x = 0;
             }
             ansi::Action::SaveCursor => {
-                ps.saved_cursor = Some((ps.cursor_x, ps.cursor_y));
+                ps.saved_cursor = Some((ps.cursor_x, ps.cursor_y, ps.wrap_pending));
             }
             ansi::Action::RestoreCursor => {
-                ps.wrap_pending = false;
-                if let Some((sx, sy)) = ps.saved_cursor {
+                if let Some((sx, sy, sw)) = ps.saved_cursor {
                     ps.cursor_x = sx;
                     ps.cursor_y = sy;
+                    ps.wrap_pending = sw;
+                } else {
+                    ps.wrap_pending = false;
                 }
             }
             ansi::Action::ClearLine(mode) => {
