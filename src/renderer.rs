@@ -531,19 +531,62 @@ pub struct PaneData {
     pub style: buffer::Style,
 }
 
-/// Generate the app icon: clean dark tile with a minimal `>_` prompt.
+/// Generate the app icon: clean dark tile with rounded border and minimal `>_` prompt.
 fn create_icon() -> Result<Surface<'static>, String> {
     const S: u32 = 64;
+    const R: u32 = 10; // corner radius
     let mut surface = Surface::new(S, S, sdl2::pixels::PixelFormatEnum::ARGB8888)
         .map_err(|e| e.to_string())?;
 
     let bg = Color::RGBA(0x1a, 0x1b, 0x26, 0xff);
+    let border_color = Color::RGBA(0x3b, 0x3d, 0x52, 0xff);
     let chevron = Color::RGBA(0x7a, 0xa2, 0xf7, 0xff);
     let underscore = Color::RGBA(0x7a, 0xa2, 0xf7, 0xff);
     let cursor = Color::RGBA(0x7a, 0xa2, 0xf7, 0xcc);
 
-    // Solid background
-    surface.fill_rect(None, bg).map_err(|e| e.to_string())?;
+    // Transparent base
+    surface.fill_rect(None, Color::RGBA(0, 0, 0, 0)).ok();
+
+    // Rounded rectangle mask using pixel-level alpha
+    {
+        let pixels = surface.without_lock_mut().unwrap();
+        for y in 0..S as usize {
+            for x in 0..S as usize {
+                let idx = (y * S as usize + x) * 4;
+                let inside = is_inside_rounded_rect(x, y, S as usize, S as usize, R as usize);
+                let (r, g, b) = if inside { (bg.r, bg.g, bg.b) } else { (0, 0, 0) };
+                let a = if inside { 0xff } else { 0x00 };
+                pixels[idx] = a;
+                pixels[idx + 1] = r;
+                pixels[idx + 2] = g;
+                pixels[idx + 3] = b;
+            }
+        }
+    }
+
+    // Rounded border stroke
+    {
+        let bw = 2u32;
+        let pixels = surface.without_lock_mut().unwrap();
+        for y in 0..S as usize {
+            for x in 0..S as usize {
+                let outer = is_inside_rounded_rect(x, y, S as usize, S as usize, R as usize);
+                let inner = is_inside_rounded_rect(
+                    x, y,
+                    S as usize - bw as usize * 2,
+                    S as usize - bw as usize * 2,
+                    R as usize - bw as usize,
+                );
+                if outer && !inner {
+                    let idx = (y * S as usize + x) * 4;
+                    pixels[idx] = 0xff;
+                    pixels[idx + 1] = border_color.r;
+                    pixels[idx + 2] = border_color.g;
+                    pixels[idx + 3] = border_color.b;
+                }
+            }
+        }
+    }
 
     // > chevron — two clean diagonal strokes
     draw_thick_line(&mut surface, 14, 20, 30, 32, chevron, 4)?;
@@ -585,4 +628,30 @@ fn draw_thick_line(
         if e2 < dx { err += dx; y += sy; }
     }
     Ok(())
+}
+
+/// Check if point (x, y) is inside a rounded rectangle with the given radius.
+fn is_inside_rounded_rect(x: usize, y: usize, w: usize, h: usize, r: usize) -> bool {
+    if x >= w || y >= h { return false; }
+
+    let in_corner = (x < r && y < r)
+        || (x >= w - r && y < r)
+        || (x < r && y >= h - r)
+        || (x >= w - r && y >= h - r);
+
+    if in_corner {
+        let (cx, cy) = if x < r && y < r {
+            (r, r)
+        } else if x >= w - r && y < r {
+            (w - r, r)
+        } else if x < r && y >= h - r {
+            (r, h - r)
+        } else {
+            (w - r, h - r)
+        };
+        let dx = x as i32 - cx as i32;
+        let dy = y as i32 - cy as i32;
+        return (dx * dx + dy * dy) <= (r * r) as i32;
+    }
+    true
 }
