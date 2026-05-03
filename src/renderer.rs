@@ -1,7 +1,9 @@
 use sdl2::pixels::Color;
 use sdl2::rect::Rect;
-use sdl2::render::Canvas;
-use sdl2::video::Window;
+use sdl2::render::{Canvas, TextureCreator};
+use sdl2::video::{Window, WindowContext};
+
+use std::collections::HashMap;
 
 use crate::buffer;
 use crate::config::Config;
@@ -14,10 +16,35 @@ fn default_cell() -> buffer::Cell {
     buffer::Cell { ch: ' ', style: buffer::Style::default() }
 }
 
+/// Cached rasterized glyph bitmap
+struct GlyphBitmap {
+    width: usize,
+    height: usize,
+    /// The x pixel offset from the left edge of the cell where the bitmap starts.
+    x_offset: i32,
+    /// The y pixel offset from the top of the cell where the bitmap starts.
+    /// Computed as: ascent_px - height - ymin
+    y_offset: i32,
+    /// Alpha coverage bitmap (0–255 per pixel), row-major
+    pixels: Vec<u8>,
+}
+
+/// Cache key: character + bold flag
+#[derive(Hash, PartialEq, Eq)]
+struct GlyphKey {
+    ch: char,
+    bold: bool,
+}
+
 pub struct Renderer {
     canvas: Canvas<Window>,
+    #[allow(dead_code)]
+    texture_creator: TextureCreator<WindowContext>,
     cell_width: usize,
     cell_height: usize,
+    /// Font ascent in pixels at the configured font size — distance from
+    /// top of cell to the baseline.
+    ascent_px: i32,
     font: Option<fontdue::Font>,
     font_size: f32,
     config_bg: (u8, u8, u8),
@@ -25,6 +52,8 @@ pub struct Renderer {
     cursor_style: CursorStyle,
     #[allow(dead_code)]
     cursor_blink: bool,
+    /// Per-glyph rasterized bitmap cache (avoids re-rasterizing every frame)
+    glyph_cache: HashMap<GlyphKey, GlyphBitmap>,
 }
 
 #[derive(Clone, Copy)]
@@ -59,8 +88,11 @@ impl Renderer {
         canvas.clear();
         canvas.present();
 
+        let texture_creator = canvas.texture_creator();
+
         let font = Self::load_font(&config.render.font_family);
-        let (cell_width, cell_height) = Self::compute_cell_size(&font, config.render.font_size);
+        let (cell_width, cell_height, ascent_px) =
+            Self::compute_cell_metrics(&font, config.render.font_size);
 
         let cursor_style = match config.render.cursor_style.as_str() {
             "underline" => CursorStyle::Underline,
@@ -70,14 +102,17 @@ impl Renderer {
 
         Ok(Renderer {
             canvas,
+            texture_creator,
             cell_width,
             cell_height,
+            ascent_px,
             font,
             font_size: config.render.font_size,
             config_bg: config.render.bg_color,
             config_fg: config.render.fg_color,
             cursor_style,
             cursor_blink: config.render.cursor_blink,
+            glyph_cache: HashMap::new(),
         })
     }
 
@@ -87,19 +122,33 @@ impl Renderer {
         fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default()).ok()
     }
 
-    fn compute_cell_size(font: &Option<fontdue::Font>, font_size: f32) -> (usize, usize) {
+    /// Compute cell dimensions using the font's own line metrics.
+    /// Returns (cell_width, cell_height, ascent_px).
+    fn compute_cell_metrics(font: &Option<fontdue::Font>, font_size: f32) -> (usize, usize, i32) {
         if let Some(f) = font {
-            let (metrics, _) = f.rasterize('M', font_size);
-            let w = (metrics.advance_width.ceil() as usize).max(4);
+            // Use 'M' advance width for the monospace cell width
+            let (m_metrics, _) = f.rasterize('M', font_size);
+            let cell_w = (m_metrics.advance_width.ceil() as usize).max(4);
 
-            // Fontdue's advance_height is often 0, so compute proper line height
-            // Use a typical 1.2x line spacing multiplier on the glyph height
-            let glyph_h = metrics.bounds.height.ceil() as usize;
-            let h = ((glyph_h as f32) * 1.2).ceil() as usize;
-
-            (w, h.max(12))
+            // Use the font's actual horizontal line metrics for height & ascent.
+            if let Some(line_metrics) = f.horizontal_line_metrics(font_size) {
+                // ascent: pixels from baseline to top of cell (positive above baseline)
+                // descent: pixels from baseline to bottom (negative below baseline)
+                let ascent = line_metrics.ascent.ceil() as i32;
+                let descent = line_metrics.descent.abs().ceil() as i32;
+                // line_gap adds extra space between lines
+                let line_gap = line_metrics.line_gap.abs().ceil() as i32;
+                let cell_h = (ascent + descent + line_gap).max(12) as usize;
+                (cell_w, cell_h, ascent)
+            } else {
+                // Fallback: rasterize 'M' and estimate
+                let glyph_h = m_metrics.height as i32;
+                let ascent = (glyph_h as f32 * 0.8).ceil() as i32;
+                let cell_h = (glyph_h + 4).max(12) as usize;
+                (cell_w, cell_h, ascent)
+            }
         } else {
-            (DEFAULT_CELL_WIDTH, DEFAULT_CELL_HEIGHT)
+            (DEFAULT_CELL_WIDTH, DEFAULT_CELL_HEIGHT, 13)
         }
     }
 
@@ -174,6 +223,7 @@ impl Renderer {
                 let fg = self.resolve_fg(&cell.style);
                 let bg = self.resolve_bg(&cell.style);
 
+                // Fill cell background
                 self.canvas.set_draw_color(Color::RGB(bg.0, bg.1, bg.2));
                 let _ = self.canvas.fill_rect(Rect::new(
                     pixel_x as i32,
@@ -182,20 +232,24 @@ impl Renderer {
                     self.cell_height as u32,
                 ));
 
+                // Underline decoration
                 if cell.style.underline {
                     self.canvas.set_draw_color(Color::RGB(fg.0, fg.1, fg.2));
+                    let ul_y = (pixel_y + self.cell_height).saturating_sub(2) as i32;
                     let _ = self.canvas.draw_line(
-                        sdl2::rect::Point::new(pixel_x as i32, (pixel_y + self.cell_height - 1) as i32),
-                        sdl2::rect::Point::new((pixel_x + self.cell_width) as i32, (pixel_y + self.cell_height - 1) as i32),
+                        sdl2::rect::Point::new(pixel_x as i32, ul_y),
+                        sdl2::rect::Point::new((pixel_x + self.cell_width) as i32, ul_y),
                     );
                 }
 
+                // Draw glyph
                 if cell.ch != ' ' {
                     self.draw_glyph(cell.ch, fg, bg, cell.style.bold, pixel_x, pixel_y);
                 }
             }
         }
 
+        // Draw cursor
         if is_focused && cursor_visible {
             let cx = pd.cursor_x.min(pane.width.saturating_sub(1));
             let cy = pd.cursor_y.min(pane.height.saturating_sub(1));
@@ -216,6 +270,7 @@ impl Renderer {
                         self.cell_height as u32,
                     ));
                     if cell.ch != ' ' {
+                        // Draw glyph with inverted colors on cursor
                         self.draw_glyph(cell.ch, bg, fg, cell.style.bold, pixel_x, pixel_y);
                     }
                 }
@@ -241,55 +296,121 @@ impl Renderer {
         }
     }
 
+    /// Rasterize a glyph and cache it.
+    fn get_or_rasterize(&mut self, ch: char, bold: bool) -> Option<GlyphBitmap> {
+        let key = GlyphKey { ch, bold };
+        if self.glyph_cache.contains_key(&key) {
+            return None; // Signal: use cache
+        }
+
+        if let Some(font) = &self.font {
+            let (metrics, pixels) = font.rasterize(ch, self.font_size);
+
+            if metrics.width == 0 || metrics.height == 0 {
+                return None;
+            }
+
+            // ── Industry-standard fontdue placement ──────────────────────────
+            //
+            // fontdue coordinate system (same as OpenType):
+            //   - origin is at the baseline, pen position
+            //   - Y increases UPWARD (opposite of screen)
+            //   - xmin: pixels from pen_x to left edge of bitmap (can be negative)
+            //   - ymin: pixels from baseline to BOTTOM of bitmap (negative = descender)
+            //   - height: bitmap height in pixels
+            //
+            // Screen coordinate system (SDL2 top-left = 0,0, Y increases DOWN):
+            //   - pen_x = left edge of cell
+            //   - pen_y = top edge of cell
+            //   - baseline_screen_y = pen_y + ascent_px
+            //
+            // To find where the TOP of the glyph bitmap lands on screen:
+            //   top_of_bitmap_in_font = ymin + height    (above baseline, in font coords)
+            //   screen_y = baseline_screen_y - top_of_bitmap_in_font
+            //            = pen_y + ascent_px - (metrics.ymin + metrics.height)
+            //
+            let x_off = metrics.xmin;
+            let y_off = self.ascent_px - metrics.ymin - metrics.height as i32;
+
+            let bm = GlyphBitmap {
+                width: metrics.width,
+                height: metrics.height,
+                x_offset: x_off,
+                y_offset: y_off,
+                pixels,
+            };
+            self.glyph_cache.insert(key, bm);
+        }
+        None
+    }
+
+    /// Draw a single glyph at (pixel_x, pixel_y) = top-left of its cell.
     fn draw_glyph(
         &mut self,
         ch: char,
         fg: (u8, u8, u8),
-        _bg: (u8, u8, u8),
-        _bold: bool,
+        bg: (u8, u8, u8),
+        bold: bool,
         pixel_x: usize,
         pixel_y: usize,
     ) {
-        let cw = self.cell_width;
-        let cell_h = self.cell_height;
+        // Ensure glyph is cached
+        self.get_or_rasterize(ch, bold);
 
-        if let Some(font) = &self.font {
-            let (metrics, bitmap) = font.rasterize(ch, self.font_size);
-            let glyph_w = metrics.bounds.width as usize;
-            let glyph_h = metrics.bounds.height as usize;
-            let x_start = if metrics.bounds.xmin < 0.0 {
-                0
-            } else {
-                metrics.bounds.xmin as usize
-            };
-            // Position glyph: baseline is at ~80% down the cell
-            let baseline = cell_h as f32 * 0.8;
-            let y_start = (baseline - glyph_h as f32 + metrics.bounds.ymin.abs()).max(0.0) as usize;
+        let key = GlyphKey { ch, bold };
+        let bm = match self.glyph_cache.get(&key) {
+            Some(b) => b,
+            None => return,
+        };
 
-            // Draw larger blocks for much better visibility
-            // Each glyph pixel becomes a 4x4 block at correct position
-            self.canvas.set_draw_color(Color::RGB(fg.0, fg.1, fg.2));
-            for gy in 0..glyph_h {
-                for gx in 0..glyph_w {
-                    let coverage = bitmap[gy * glyph_w + gx];
-                    if coverage < 10 { // Very low threshold to catch nearly all pixels
-                        continue;
-                    }
-                    let sx = x_start + gx;
-                    let sy = y_start + gy;
-                    if sx >= cw || sy >= cell_h {
-                        continue;
-                    }
-                    // Draw 4x4 block at correct position
-                    let _ = self.canvas.fill_rect(Rect::new(
-                        (pixel_x + sx) as i32,
-                        (pixel_y + sy) as i32,
-                        4,
-                        4,
-                    ));
+        let cw = self.cell_width as i32;
+        let ch_h = self.cell_height as i32;
+        let glyph_w = bm.width;
+        let glyph_h = bm.height;
+        let x_off = bm.x_offset;
+        let y_off = bm.y_offset;
+
+        // Build a temporary ARGB surface for this glyph and blit to canvas.
+        // This gives us proper per-pixel alpha compositing against the background.
+        let surf_w = (glyph_w as u32).max(1);
+        let surf_h = (glyph_h as u32).max(1);
+
+        // We'll render directly pixel by pixel using the already-cleared background.
+        // For each covered pixel, we alpha-composite fg over bg.
+        let pixels_ref = bm.pixels.clone(); // clone to avoid borrow conflict
+
+        for gy in 0..glyph_h {
+            let screen_y = pixel_y as i32 + y_off + gy as i32;
+            if screen_y < 0 || screen_y >= pixel_y as i32 + ch_h {
+                continue;
+            }
+            for gx in 0..glyph_w {
+                let screen_x = pixel_x as i32 + x_off + gx as i32;
+                if screen_x < 0 || screen_x >= pixel_x as i32 + cw {
+                    continue;
                 }
+
+                let alpha = pixels_ref[gy * glyph_w + gx];
+                if alpha == 0 {
+                    continue;
+                }
+
+                // Alpha-composite fg over bg using coverage as alpha
+                // out = alpha * fg + (1 - alpha) * bg
+                let a = alpha as u32;
+                let inv_a = 255 - a;
+                let r = ((a * fg.0 as u32 + inv_a * bg.0 as u32) / 255) as u8;
+                let g = ((a * fg.1 as u32 + inv_a * bg.1 as u32) / 255) as u8;
+                let b = ((a * fg.2 as u32 + inv_a * bg.2 as u32) / 255) as u8;
+
+                self.canvas.set_draw_color(Color::RGB(r, g, b));
+                let _ = self.canvas.draw_point(sdl2::rect::Point::new(screen_x, screen_y));
             }
         }
+
+        // Suppress unused variable warnings
+        let _ = surf_w;
+        let _ = surf_h;
     }
 
     fn draw_border(&mut self, pane: &layout::Pane, y_offset: usize) {
@@ -319,7 +440,7 @@ impl Renderer {
     }
 
     fn draw_tab_bar(&mut self, layout: &layout::Layout) {
-        let bar_y = 0;
+        let bar_y = 0usize;
         let bar_height = self.cell_height;
         let tab_width = self.cell_width * 12;
 
@@ -327,13 +448,13 @@ impl Renderer {
             let x = i * tab_width;
             let is_active = i == layout.active_tab;
 
-            let bg = if is_active {
+            let bg_color = if is_active {
                 Color::RGB(60, 60, 80)
             } else {
                 Color::RGB(40, 40, 50)
             };
 
-            self.canvas.set_draw_color(bg);
+            self.canvas.set_draw_color(bg_color);
             let _ = self.canvas.fill_rect(Rect::new(
                 x as i32,
                 bar_y as i32,
@@ -343,7 +464,8 @@ impl Renderer {
 
             let label = format!("Tab {}", i + 1);
             let fg = if is_active { (220, 220, 255) } else { (160, 160, 180) };
-            let bg_tuple = if is_active { (60, 60, 80) } else { (40, 40, 50) };
+            let bg_tuple = if is_active { (60u8, 60u8, 80u8) } else { (40u8, 40u8, 50u8) };
+
             for (ci, ch) in label.chars().enumerate() {
                 if ci >= 12 {
                     break;

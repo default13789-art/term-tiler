@@ -2,4 +2,6 @@ target/
 *.swp
 *.swo
 session-*.md
+*.png
+.claude/
 
