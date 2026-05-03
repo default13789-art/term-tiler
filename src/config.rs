@@ -29,8 +29,6 @@ pub struct RenderConfig {
     pub bg_color: (u8, u8, u8),
     #[serde(default = "default_fg_color")]
     pub fg_color: (u8, u8, u8),
-    #[serde(default = "default_tab_bar")]
-    pub tab_bar_height: usize,
 }
 
 #[derive(Deserialize, Clone)]
@@ -60,7 +58,6 @@ fn default_window_width() -> u32 { 1024 }
 fn default_window_height() -> u32 { 768 }
 fn default_bg_color() -> (u8, u8, u8) { (30, 30, 30) }
 fn default_fg_color() -> (u8, u8, u8) { (220, 220, 220) }
-fn default_tab_bar() -> usize { 1 }
 fn default_prefix() -> String { "CtrlA".to_string() }
 fn default_split_h() -> String { "h".to_string() }
 fn default_split_v() -> String { "v".to_string() }
@@ -90,7 +87,6 @@ impl Default for RenderConfig {
             window_height: default_window_height(),
             bg_color: default_bg_color(),
             fg_color: default_fg_color(),
-            tab_bar_height: default_tab_bar(),
         }
     }
 }
