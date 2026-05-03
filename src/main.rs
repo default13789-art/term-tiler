@@ -16,6 +16,7 @@ struct PaneState {
     cursor_y: usize,
     saved_cursor: Option<(usize, usize)>,
     style: buffer::Style,
+    wrap_pending: bool,
 }
 
 fn main() -> Result<(), String> {
@@ -286,6 +287,7 @@ fn spawn_pane(
         cursor_y: 0,
         saved_cursor: None,
         style: buffer::Style::default(),
+        wrap_pending: false,
     });
     Ok(())
 }
@@ -306,7 +308,8 @@ fn process_pty_actions(pane: &mut layout::Pane, ps: &mut PaneState, actions: &[a
         match action {
             ansi::Action::Write(ch) => {
                 ensure_cursor_in_bounds(pane, ps);
-                if ps.cursor_x >= pane.width {
+                if ps.wrap_pending {
+                    ps.wrap_pending = false;
                     ps.cursor_x = 0;
                     ps.cursor_y += 1;
                     ensure_cursor_in_bounds(pane, ps);
@@ -314,25 +317,29 @@ fn process_pty_actions(pane: &mut layout::Pane, ps: &mut PaneState, actions: &[a
                 pane.buffer.write(ps.cursor_x, ps.cursor_y, *ch, ps.style);
                 ps.cursor_x += 1;
                 if ps.cursor_x >= pane.width {
-                    ps.cursor_x = 0;
-                    ps.cursor_y += 1;
-                    ensure_cursor_in_bounds(pane, ps);
+                    ps.cursor_x = pane.width - 1;
+                    ps.wrap_pending = true;
                 }
             }
             ansi::Action::MoveCursor(row, col) => {
+                ps.wrap_pending = false;
                 ps.cursor_x = (*col).min(pane.width.saturating_sub(1));
                 ps.cursor_y = (*row).min(pane.height.saturating_sub(1));
             }
             ansi::Action::CursorUp(n) => {
+                ps.wrap_pending = false;
                 ps.cursor_y = ps.cursor_y.saturating_sub(*n);
             }
             ansi::Action::CursorDown(n) => {
+                ps.wrap_pending = false;
                 ps.cursor_y = (ps.cursor_y + n).min(pane.height.saturating_sub(1));
             }
             ansi::Action::CursorForward(n) => {
+                ps.wrap_pending = false;
                 ps.cursor_x = (ps.cursor_x + n).min(pane.width.saturating_sub(1));
             }
             ansi::Action::CursorBack(n) => {
+                ps.wrap_pending = false;
                 ps.cursor_x = ps.cursor_x.saturating_sub(*n);
             }
             ansi::Action::SetFgColor(color) => {
@@ -354,16 +361,19 @@ fn process_pty_actions(pane: &mut layout::Pane, ps: &mut PaneState, actions: &[a
                 ps.style = buffer::Style::default();
             }
             ansi::Action::Newline => {
+                ps.wrap_pending = false;
                 ps.cursor_y += 1;
                 ensure_cursor_in_bounds(pane, ps);
             }
             ansi::Action::CarriageReturn => {
+                ps.wrap_pending = false;
                 ps.cursor_x = 0;
             }
             ansi::Action::SaveCursor => {
                 ps.saved_cursor = Some((ps.cursor_x, ps.cursor_y));
             }
             ansi::Action::RestoreCursor => {
+                ps.wrap_pending = false;
                 if let Some((sx, sy)) = ps.saved_cursor {
                     ps.cursor_x = sx;
                     ps.cursor_y = sy;
