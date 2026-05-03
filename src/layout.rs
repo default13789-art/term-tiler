@@ -319,8 +319,9 @@ impl Layout {
         let tab_id = self.next_tab_id;
         self.next_tab_id += 1;
 
+        let pane_id = self.next_pane_id;
         let initial_pane = Pane {
-            id: self.next_pane_id,
+            id: pane_id,
             x: 0,
             y: 0,
             width: self.width,
@@ -335,7 +336,7 @@ impl Layout {
             focused: 0,
         });
         self.active_tab = self.tabs.len() - 1;
-        tab_id
+        pane_id
     }
 
     pub fn close_tab(&mut self) {
