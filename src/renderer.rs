@@ -531,43 +531,29 @@ pub struct PaneData {
     pub style: buffer::Style,
 }
 
-/// Generate the app icon: dark rounded tile with `>_` prompt and subtle grid.
+/// Generate the app icon: clean dark tile with a minimal `>_` prompt.
 fn create_icon() -> Result<Surface<'static>, String> {
     const S: u32 = 64;
     let mut surface = Surface::new(S, S, sdl2::pixels::PixelFormatEnum::ARGB8888)
         .map_err(|e| e.to_string())?;
 
-    let bg = Color::RGBA(0x1e, 0x1e, 0x2e, 0xff);
-    let border = Color::RGBA(0x45, 0x47, 0x5a, 0xff);
-    let grid = Color::RGBA(0x31, 0x32, 0x44, 0xff);
-    let blue = Color::RGBA(0x89, 0xb4, 0xfa, 0xff);
-    let green = Color::RGBA(0xa6, 0xe3, 0xa1, 0xff);
+    let bg = Color::RGBA(0x1a, 0x1b, 0x26, 0xff);
+    let chevron = Color::RGBA(0x7a, 0xa2, 0xf7, 0xff);
+    let underscore = Color::RGBA(0x7a, 0xa2, 0xf7, 0xff);
+    let cursor = Color::RGBA(0x7a, 0xa2, 0xf7, 0xcc);
 
-    // Background
+    // Solid background
     surface.fill_rect(None, bg).map_err(|e| e.to_string())?;
 
-    // Dashed grid lines at center
-    for i in (8..56).step_by(4) {
-        surface.fill_rect(Some(Rect::new(31, i, 2, 2)), grid).ok();
-        surface.fill_rect(Some(Rect::new(i, 31, 2, 2)), grid).ok();
-    }
+    // > chevron — two clean diagonal strokes
+    draw_thick_line(&mut surface, 14, 20, 30, 32, chevron, 4)?;
+    draw_thick_line(&mut surface, 30, 32, 14, 44, chevron, 4)?;
 
-    // > prompt — top stroke: (14,20) → (30,32)
-    draw_thick_line(&mut surface, 14, 20, 30, 32, blue, 4)?;
-    // > prompt — bottom stroke: (30,32) → (14,44)
-    draw_thick_line(&mut surface, 30, 32, 14, 44, blue, 4)?;
+    // _ underscore bar
+    surface.fill_rect(Some(Rect::new(34, 43, 14, 3)), underscore).ok();
 
-    // _ underscore
-    surface.fill_rect(Some(Rect::new(33, 42, 16, 3)), green).ok();
-
-    // Cursor block
-    surface.fill_rect(Some(Rect::new(52, 34, 4, 10)), blue).ok();
-
-    // Border (1px on each edge)
-    surface.fill_rect(Some(Rect::new(0, 0, S, 1)), border).ok();
-    surface.fill_rect(Some(Rect::new(0, (S - 1) as i32, S, 1)), border).ok();
-    surface.fill_rect(Some(Rect::new(0, 0, 1, S)), border).ok();
-    surface.fill_rect(Some(Rect::new((S - 1) as i32, 0, 1, S)), border).ok();
+    // Blinking cursor block
+    surface.fill_rect(Some(Rect::new(52, 35, 3, 9)), cursor).ok();
 
     Ok(surface)
 }
