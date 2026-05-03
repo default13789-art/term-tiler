@@ -44,7 +44,7 @@ fn main() -> Result<(), String> {
             match event {
                 Event::Quit { .. } => break 'main_loop,
 
-                Event::KeyDown { keycode, keymod, repeat: false, .. } => {
+                Event::KeyDown { keycode, keymod, .. } => {
                     let (action, new_pending) = input::handle_key(keycode, keymod, ctrl_a_pending);
                     ctrl_a_pending = new_pending;
 
