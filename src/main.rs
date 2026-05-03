@@ -340,16 +340,54 @@ fn process_pty_actions(pane: &mut layout::Pane, ps: &mut PaneState, actions: &[a
                     ps.cursor_y = sy;
                 }
             }
-            ansi::Action::ClearLine => {
+            ansi::Action::ClearLine(mode) => {
                 let y = ps.cursor_y.min(pane.height.saturating_sub(1));
-                for x in ps.cursor_x..pane.width {
-                    pane.buffer.write(x, y, ' ', ps.style);
+                match mode {
+                    ansi::ClearMode::ToEnd => {
+                        for x in ps.cursor_x..pane.width {
+                            pane.buffer.write(x, y, ' ', ps.style);
+                        }
+                    }
+                    ansi::ClearMode::ToStart => {
+                        for x in 0..=ps.cursor_x.min(pane.width.saturating_sub(1)) {
+                            pane.buffer.write(x, y, ' ', ps.style);
+                        }
+                    }
+                    ansi::ClearMode::All => {
+                        for x in 0..pane.width {
+                            pane.buffer.write(x, y, ' ', ps.style);
+                        }
+                    }
                 }
             }
-            ansi::Action::ClearScreen => {
-                pane.buffer.clear();
-                ps.cursor_x = 0;
-                ps.cursor_y = 0;
+            ansi::Action::ClearScreen(mode) => {
+                match mode {
+                    ansi::ClearMode::ToEnd => {
+                        let y = ps.cursor_y.min(pane.height.saturating_sub(1));
+                        for x in ps.cursor_x..pane.width {
+                            pane.buffer.write(x, y, ' ', ps.style);
+                        }
+                        for row in (y + 1)..pane.height {
+                            for x in 0..pane.width {
+                                pane.buffer.write(x, row, ' ', ps.style);
+                            }
+                        }
+                    }
+                    ansi::ClearMode::ToStart => {
+                        let y = ps.cursor_y.min(pane.height.saturating_sub(1));
+                        for row in 0..y {
+                            for x in 0..pane.width {
+                                pane.buffer.write(x, row, ' ', ps.style);
+                            }
+                        }
+                        for x in 0..=ps.cursor_x.min(pane.width.saturating_sub(1)) {
+                            pane.buffer.write(x, y, ' ', ps.style);
+                        }
+                    }
+                    ansi::ClearMode::All => {
+                        pane.buffer.clear();
+                    }
+                }
             }
         }
     }

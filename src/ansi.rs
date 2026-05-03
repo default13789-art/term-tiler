@@ -1,3 +1,10 @@
+#[derive(PartialEq, Debug, Clone, Copy)]
+pub enum ClearMode {
+    ToEnd = 0,
+    ToStart = 1,
+    All = 2,
+}
+
 #[derive(PartialEq, Debug)]
 pub enum Action {
     Write(char),
@@ -16,8 +23,8 @@ pub enum Action {
     SetItalic(bool),
     SetUnderline(bool),
     Reset,
-    ClearLine,
-    ClearScreen,
+    ClearLine(ClearMode),
+    ClearScreen(ClearMode),
 }
 
 #[derive(PartialEq, Debug, Clone, Copy)]
@@ -100,8 +107,22 @@ fn parse_escape_sequence(chars: &mut std::iter::Peekable<std::str::Chars>) -> Ve
             'B' => vec![Action::CursorDown(n.max(1))],
             'C' => vec![Action::CursorForward(n.max(1))],
             'D' => vec![Action::CursorBack(n.max(1))],
-            'K' => vec![Action::ClearLine],
-            'J' => vec![Action::ClearScreen],
+            'K' => {
+                let mode_n = if params.is_empty() { 0 } else { n };
+                vec![Action::ClearLine(match mode_n {
+                    0 => ClearMode::ToEnd,
+                    1 => ClearMode::ToStart,
+                    _ => ClearMode::All,
+                })]
+            }
+            'J' => {
+                let mode_n = if params.is_empty() { 0 } else { n };
+                vec![Action::ClearScreen(match mode_n {
+                    0 => ClearMode::ToEnd,
+                    1 => ClearMode::ToStart,
+                    _ => ClearMode::All,
+                })]
+            }
             's' => vec![Action::SaveCursor],
             'u' => vec![Action::RestoreCursor],
             'm' => {
@@ -158,6 +179,22 @@ fn parse_color_codes(codes: &[u32]) -> Vec<Action> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_clear_line_modes() {
+        assert_eq!(parse("\x1B[K"), vec![Action::ClearLine(ClearMode::ToEnd)]);
+        assert_eq!(parse("\x1B[0K"), vec![Action::ClearLine(ClearMode::ToEnd)]);
+        assert_eq!(parse("\x1B[1K"), vec![Action::ClearLine(ClearMode::ToStart)]);
+        assert_eq!(parse("\x1B[2K"), vec![Action::ClearLine(ClearMode::All)]);
+    }
+
+    #[test]
+    fn test_clear_screen_modes() {
+        assert_eq!(parse("\x1B[J"), vec![Action::ClearScreen(ClearMode::ToEnd)]);
+        assert_eq!(parse("\x1B[0J"), vec![Action::ClearScreen(ClearMode::ToEnd)]);
+        assert_eq!(parse("\x1B[1J"), vec![Action::ClearScreen(ClearMode::ToStart)]);
+        assert_eq!(parse("\x1B[2J"), vec![Action::ClearScreen(ClearMode::All)]);
+    }
 
     #[test]
     fn test_plain_text() {

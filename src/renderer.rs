@@ -374,15 +374,7 @@ impl Renderer {
         let glyph_h = bm.height;
         let x_off = bm.x_offset;
         let y_off = bm.y_offset;
-
-        // Build a temporary ARGB surface for this glyph and blit to canvas.
-        // This gives us proper per-pixel alpha compositing against the background.
-        let surf_w = (glyph_w as u32).max(1);
-        let surf_h = (glyph_h as u32).max(1);
-
-        // We'll render directly pixel by pixel using the already-cleared background.
-        // For each covered pixel, we alpha-composite fg over bg.
-        let pixels_ref = bm.pixels.clone(); // clone to avoid borrow conflict
+        let pixels_ref = bm.pixels.clone();
 
         for gy in 0..glyph_h {
             let screen_y = pixel_y as i32 + y_off + gy as i32;
@@ -412,10 +404,6 @@ impl Renderer {
                 let _ = self.canvas.draw_point(sdl2::rect::Point::new(screen_x, screen_y));
             }
         }
-
-        // Suppress unused variable warnings
-        let _ = surf_w;
-        let _ = surf_h;
     }
 
     fn draw_border(&mut self, pane: &layout::Pane, y_offset: usize) {

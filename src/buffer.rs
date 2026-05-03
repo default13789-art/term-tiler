@@ -158,6 +158,16 @@ impl Buffer {
         self.cells = new_cells;
         self.width = new_width;
         self.height = new_height;
+
+        // Resize scrollback rows to match new width
+        for row in &mut self.scrollback {
+            let mut new_row = vec![Cell::default(); new_width];
+            let copy_len = new_width.min(row.len());
+            for x in 0..copy_len {
+                new_row[x] = row[x].clone();
+            }
+            *row = new_row;
+        }
     }
 
     pub fn get_render_row(&self, y: usize) -> Option<&[Cell]> {
