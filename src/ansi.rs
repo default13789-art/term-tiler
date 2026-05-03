@@ -48,6 +48,10 @@ pub fn parse(input: &str) -> Vec<Action> {
             actions.push(Action::Newline);
         } else if ch == '\r' {
             actions.push(Action::CarriageReturn);
+        } else if ch == '\x08' {
+            actions.push(Action::CursorBack(1));
+        } else if ch.is_control() {
+            // Ignore other control characters (BEL, NUL, etc.)
         } else {
             actions.push(Action::Write(ch));
         }
