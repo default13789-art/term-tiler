@@ -216,12 +216,37 @@ impl Layout {
     }
 
     pub fn resize(&mut self, new_width: usize, new_height: usize) {
+        let old_width = self.width;
+        let old_height = self.height;
+
         self.width = new_width;
         self.height = new_height;
+
+        if old_width == 0 || old_height == 0 {
+            for tab in &mut self.tabs {
+                for pane in &mut tab.panes {
+                    pane.width = new_width;
+                    pane.height = new_height;
+                    pane.buffer.resize(new_width, new_height);
+                }
+            }
+            return;
+        }
+
+        let w_ratio = new_width as f64 / old_width as f64;
+        let h_ratio = new_height as f64 / old_height as f64;
+
         for tab in &mut self.tabs {
             for pane in &mut tab.panes {
-                pane.width = pane.width.min(new_width);
-                pane.height = pane.height.min(new_height);
+                let new_x = (pane.x as f64 * w_ratio).round() as usize;
+                let new_y = (pane.y as f64 * h_ratio).round() as usize;
+                let new_right = ((pane.x + pane.width) as f64 * w_ratio).round() as usize;
+                let new_bottom = ((pane.y + pane.height) as f64 * h_ratio).round() as usize;
+
+                pane.x = new_x;
+                pane.y = new_y;
+                pane.width = (new_right - new_x).max(2);
+                pane.height = (new_bottom - new_y).max(2);
                 pane.buffer.resize(pane.width, pane.height);
             }
         }

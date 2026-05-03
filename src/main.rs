@@ -81,8 +81,10 @@ fn main() -> Result<(), String> {
 
                         input::InputAction::NewTab => {
                             let tab_pane_id = layout.new_tab();
+                            handle_resize(&renderer, &mut layout, &mut panes);
                             if spawn_pane(&mut panes, tab_pane_id, &layout).is_err() {
                                 layout.close_tab();
+                                handle_resize(&renderer, &mut layout, &mut panes);
                             }
                         }
 
@@ -96,6 +98,7 @@ fn main() -> Result<(), String> {
                                 panes.remove(&id);
                             }
                             layout.close_tab();
+                            handle_resize(&renderer, &mut layout, &mut panes);
                         }
 
                         input::InputAction::NextTab => {
@@ -162,17 +165,7 @@ fn main() -> Result<(), String> {
                 }
 
                 Event::Window { win_event: WindowEvent::Resized(_, _), .. } => {
-                    let (new_cols, new_rows) = renderer.grid_size();
-                    if new_cols != layout.width || new_rows != layout.height {
-                        layout.resize(new_cols, new_rows);
-                        for pane in layout.active_panes() {
-                            if let Some(ps) = panes.get_mut(&pane.id) {
-                                ps.pty.set_window_size(pane.width as u16, pane.height as u16);
-                                ps.cursor_x = ps.cursor_x.min(pane.width.saturating_sub(1));
-                                ps.cursor_y = ps.cursor_y.min(pane.height.saturating_sub(1));
-                            }
-                        }
-                    }
+                    handle_resize(&renderer, &mut layout, &mut panes);
                 }
 
                 _ => {}
@@ -380,5 +373,35 @@ fn ansi_color_to_buffer(color: ansi::Color) -> buffer::Color {
         AnsiColor::Magenta => BufferColor::Magenta,
         AnsiColor::Cyan => BufferColor::Cyan,
         AnsiColor::White => BufferColor::White,
+    }
+}
+
+fn handle_resize(
+    renderer: &renderer::Renderer,
+    layout: &mut layout::Layout,
+    panes: &mut HashMap<usize, PaneState>,
+) {
+    let (new_cols, new_rows) = renderer.grid_size();
+    let tab_bar_rows = if layout.tabs.len() > 1 { 1 } else { 0 };
+    let usable_rows = new_rows.saturating_sub(tab_bar_rows);
+
+    if new_cols != layout.width || usable_rows != layout.height {
+        layout.resize(new_cols, usable_rows);
+        update_all_pane_sizes(layout, panes);
+    }
+}
+
+fn update_all_pane_sizes(
+    layout: &layout::Layout,
+    panes: &mut HashMap<usize, PaneState>,
+) {
+    for tab in &layout.tabs {
+        for pane in &tab.panes {
+            if let Some(ps) = panes.get_mut(&pane.id) {
+                ps.pty.set_window_size(pane.width as u16, pane.height as u16);
+                ps.cursor_x = ps.cursor_x.min(pane.width.saturating_sub(1));
+                ps.cursor_y = ps.cursor_y.min(pane.height.saturating_sub(1));
+            }
+        }
     }
 }
