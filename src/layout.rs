@@ -30,17 +30,22 @@ pub struct Layout {
     pub height: usize,
     next_pane_id: usize,
     next_tab_id: usize,
+    scrollback_limit: usize,
 }
 
 impl Layout {
     pub fn new(width: usize, height: usize) -> Self {
+        Self::with_scrollback(width, height, 10000)
+    }
+
+    pub fn with_scrollback(width: usize, height: usize, scrollback_limit: usize) -> Self {
         let initial_pane = Pane {
             id: 0,
             x: 0,
             y: 0,
             width,
             height,
-            buffer: buffer::Buffer::new(width, height),
+            buffer: Self::make_buffer(width, height, scrollback_limit),
         };
 
         Layout {
@@ -54,7 +59,14 @@ impl Layout {
             height,
             next_pane_id: 1,
             next_tab_id: 1,
+            scrollback_limit,
         }
+    }
+
+    fn make_buffer(width: usize, height: usize, scrollback_limit: usize) -> buffer::Buffer {
+        let mut buf = buffer::Buffer::new(width, height);
+        buf.scrollback_limit = scrollback_limit;
+        buf
     }
 
     pub fn active_tab(&self) -> &Tab {
@@ -130,7 +142,7 @@ impl Layout {
             y: pane.y + top_height,
             width: pane.width,
             height: bottom_height,
-            buffer: buffer::Buffer::new(pane.width, bottom_height),
+            buffer: Self::make_buffer(pane.width, bottom_height, self.scrollback_limit),
         };
 
         self.next_pane_id += 1;
@@ -162,7 +174,7 @@ impl Layout {
             y: pane.y,
             width: right_width,
             height: pane.height,
-            buffer: buffer::Buffer::new(right_width, pane.height),
+            buffer: Self::make_buffer(right_width, pane.height, self.scrollback_limit),
         };
 
         self.next_pane_id += 1;
@@ -290,7 +302,7 @@ impl Layout {
                     y: 0,
                     width: self.width,
                     height: self.height,
-                    buffer: buffer::Buffer::new(self.width, self.height),
+                    buffer: Self::make_buffer(self.width, self.height, self.scrollback_limit),
                 };
                 self.next_pane_id += 1;
                 tab.panes.push(initial_pane);
@@ -313,7 +325,7 @@ impl Layout {
             y: 0,
             width: self.width,
             height: self.height,
-            buffer: buffer::Buffer::new(self.width, self.height),
+            buffer: Self::make_buffer(self.width, self.height, self.scrollback_limit),
         };
         self.next_pane_id += 1;
 

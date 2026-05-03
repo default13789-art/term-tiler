@@ -25,7 +25,7 @@ fn main() -> Result<(), String> {
     let mut renderer = renderer::Renderer::new(&sdl_context, &cfg)?;
 
     let (cols, rows) = renderer.grid_size();
-    let mut layout = layout::Layout::new(cols, rows);
+    let mut layout = layout::Layout::with_scrollback(cols, rows, cfg.render.scrollback_lines);
     let mut panes: HashMap<usize, PaneState> = HashMap::new();
 
     // Spawn initial PTY
