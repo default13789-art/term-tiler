@@ -261,8 +261,11 @@ impl Buffer {
     }
 
     pub fn set_scroll_region(&mut self, top: usize, bottom: usize) {
+        if top > bottom {
+            return;
+        }
         self.scroll_top = top;
-        self.scroll_bottom = bottom;
+        self.scroll_bottom = bottom.min(self.height.saturating_sub(1));
     }
 
     pub fn save_main_screen(&mut self) {
@@ -301,15 +304,6 @@ impl Buffer {
             return;
         }
         let row = &mut self.cells[y];
-        // Clear wide continuation at boundary
-        if x > 0 && row[x - 1].ch != ' ' && !row[x - 1].wide {
-            // Check if previous cell is a wide char primary
-            if x + 1 < self.width && row[x + 1].wide {
-                // Not a wide char primary, ok
-            } else if x > 0 && row[x].wide {
-                // We're at a continuation cell — back up to the primary
-            }
-        }
         let remaining = self.width - x;
         let n = n.min(remaining);
         for i in (x..self.width).rev() {
