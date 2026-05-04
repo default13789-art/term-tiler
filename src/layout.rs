@@ -386,6 +386,7 @@ impl Layout {
 /// to absorb the freed space. Handles vertical splits (side-by-side) and
 /// horizontal splits (stacked), including nested splits.
 fn absorb_neighbor(panes: &mut Vec<Pane>, rx: usize, ry: usize, rw: usize, rh: usize) {
+    // Phase 1: Try exact full-edge match (simple splits)
     // Vertical split: neighbor is to the left or right, same row range
     for pane in panes.iter_mut() {
         // Neighbor is to the left of removed
@@ -417,6 +418,50 @@ fn absorb_neighbor(panes: &mut Vec<Pane>, rx: usize, ry: usize, rw: usize, rh: u
             pane.height += rh;
             pane.buffer.resize(pane.width, pane.height);
             return;
+        }
+    }
+
+    // Phase 2: Partial edge absorption for nested split layouts.
+    // When no single neighbor matches the full rectangle, extend all neighbors
+    // that share a partial edge with the removed pane.
+    let mut horizontal_absorbed = false;
+
+    // Try horizontal neighbors (above/below)
+    for pane in panes.iter_mut() {
+        // Neighbor above whose bottom edge matches removed's top
+        if pane.y + pane.height == ry && pane.x >= rx && pane.x + pane.width <= rx + rw {
+            pane.height += rh;
+            pane.buffer.resize(pane.width, pane.height);
+            horizontal_absorbed = true;
+        }
+    }
+    for pane in panes.iter_mut() {
+        // Neighbor below whose top edge matches removed's bottom
+        if pane.y == ry + rh && pane.x >= rx && pane.x + pane.width <= rx + rw {
+            pane.y = ry;
+            pane.height += rh;
+            pane.buffer.resize(pane.width, pane.height);
+            horizontal_absorbed = true;
+        }
+    }
+    if horizontal_absorbed {
+        return;
+    }
+
+    // Try vertical neighbors (left/right)
+    for pane in panes.iter_mut() {
+        // Neighbor to the left
+        if pane.x + pane.width == rx && pane.y >= ry && pane.y + pane.height <= ry + rh {
+            pane.width += rw;
+            pane.buffer.resize(pane.width, pane.height);
+        }
+    }
+    for pane in panes.iter_mut() {
+        // Neighbor to the right
+        if pane.x == rx + rw && pane.y >= ry && pane.y + pane.height <= ry + rh {
+            pane.x = rx;
+            pane.width += rw;
+            pane.buffer.resize(pane.width, pane.height);
         }
     }
 }
