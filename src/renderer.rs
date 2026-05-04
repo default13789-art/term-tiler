@@ -374,8 +374,6 @@ impl Renderer {
         let glyph_h = bm.height;
         let x_off = bm.x_offset;
         let y_off = bm.y_offset;
-        let pixels_ref = bm.pixels.clone();
-
         for gy in 0..glyph_h {
             let screen_y = pixel_y as i32 + y_off + gy as i32;
             if screen_y < 0 || screen_y >= pixel_y as i32 + ch_h {
@@ -387,7 +385,7 @@ impl Renderer {
                     continue;
                 }
 
-                let alpha = pixels_ref[gy * glyph_w + gx];
+                let alpha = bm.pixels[gy * glyph_w + gx];
                 if alpha == 0 {
                     continue;
                 }
