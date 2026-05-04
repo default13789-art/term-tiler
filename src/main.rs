@@ -429,6 +429,7 @@ fn process_pty_actions(pane: &mut layout::Pane, ps: &mut PaneState, actions: &[a
                 }
             }
             ansi::Action::ClearScreen(mode) => {
+                ps.wrap_pending = false;
                 match mode {
                     ansi::ClearMode::ToEnd => {
                         let y = ps.cursor_y.min(pane.height.saturating_sub(1));
