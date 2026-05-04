@@ -17,10 +17,49 @@ pub enum InputAction {
     Nothing,
 }
 
+pub struct KeyConfig {
+    split_h: char,
+    split_v: char,
+    new_tab: char,
+    close_tab: char,
+    next_tab: char,
+    prev_tab: char,
+}
+
+impl Default for KeyConfig {
+    fn default() -> Self {
+        KeyConfig {
+            split_h: 'h',
+            split_v: 'v',
+            new_tab: 't',
+            close_tab: 'w',
+            next_tab: 'n',
+            prev_tab: 'b',
+        }
+    }
+}
+
+impl KeyConfig {
+    pub fn from_config(cfg: &crate::config::KeybindConfig) -> Self {
+        fn first_char(s: &str, fallback: char) -> char {
+            s.chars().next().unwrap_or(fallback)
+        }
+        KeyConfig {
+            split_h: first_char(&cfg.split_horizontal, 'h'),
+            split_v: first_char(&cfg.split_vertical, 'v'),
+            new_tab: first_char(&cfg.new_tab, 't'),
+            close_tab: first_char(&cfg.close_tab, 'w'),
+            next_tab: first_char(&cfg.next_tab, 'n'),
+            prev_tab: first_char(&cfg.prev_tab, 'b'),
+        }
+    }
+}
+
 pub fn handle_key(
     keycode: Option<Keycode>,
     keymod: Mod,
     ctrl_a_pending: bool,
+    key_config: &KeyConfig,
 ) -> (InputAction, bool) {
     let kmod = keymod;
     let ctrl = kmod.contains(Mod::LCTRLMOD) || kmod.contains(Mod::RCTRLMOD);
@@ -29,18 +68,19 @@ pub fn handle_key(
 
     if ctrl_a_pending {
         if let Some(kc) = keycode {
-            let action = match kc {
-                Keycode::A => Some(InputAction::ForwardToPty(vec![1])),
-                Keycode::H => Some(InputAction::SplitHorizontal),
-                Keycode::V => Some(InputAction::SplitVertical),
-                Keycode::J => Some(InputAction::Navigate(Direction::Down)),
-                Keycode::K => Some(InputAction::Navigate(Direction::Up)),
-                Keycode::L => Some(InputAction::Navigate(Direction::Right)),
-                Keycode::P => Some(InputAction::Navigate(Direction::Left)),
-                Keycode::T => Some(InputAction::NewTab),
-                Keycode::W => Some(InputAction::CloseTab),
-                Keycode::N => Some(InputAction::NextTab),
-                Keycode::B => Some(InputAction::PrevTab),
+            let ch = kc.name().to_ascii_lowercase().chars().next().unwrap_or('\0');
+            let action = match ch {
+                'a' => Some(InputAction::ForwardToPty(vec![1])),
+                c if c == key_config.split_h => Some(InputAction::SplitHorizontal),
+                c if c == key_config.split_v => Some(InputAction::SplitVertical),
+                c if c == key_config.new_tab => Some(InputAction::NewTab),
+                c if c == key_config.close_tab => Some(InputAction::CloseTab),
+                c if c == key_config.next_tab => Some(InputAction::NextTab),
+                c if c == key_config.prev_tab => Some(InputAction::PrevTab),
+                'j' => Some(InputAction::Navigate(Direction::Down)),
+                'k' => Some(InputAction::Navigate(Direction::Up)),
+                'l' => Some(InputAction::Navigate(Direction::Right)),
+                'h' => Some(InputAction::Navigate(Direction::Left)),
                 _ => None,
             };
             if let Some(a) = action {
@@ -167,6 +207,7 @@ mod tests {
             Some(Keycode::A),
             Mod::LCTRLMOD,
             false,
+            &KeyConfig::default(),
         );
         assert_eq!(action, InputAction::Nothing);
         assert!(pending);
@@ -174,43 +215,43 @@ mod tests {
 
     #[test]
     fn test_prefix_then_split_h() {
-        let (_, pending) = handle_key(Some(Keycode::A), Mod::LCTRLMOD, false);
+        let (_, pending) = handle_key(Some(Keycode::A), Mod::LCTRLMOD, false, &KeyConfig::default());
         assert!(pending);
-        let (action, pending) = handle_key(Some(Keycode::H), Mod::empty(), pending);
+        let (action, pending) = handle_key(Some(Keycode::H), Mod::empty(), pending, &KeyConfig::default());
         assert_eq!(action, InputAction::SplitHorizontal);
         assert!(!pending);
     }
 
     #[test]
     fn test_prefix_then_split_v() {
-        let (_, pending) = handle_key(Some(Keycode::A), Mod::LCTRLMOD, false);
-        let (action, _) = handle_key(Some(Keycode::V), Mod::empty(), pending);
+        let (_, pending) = handle_key(Some(Keycode::A), Mod::LCTRLMOD, false, &KeyConfig::default());
+        let (action, _) = handle_key(Some(Keycode::V), Mod::empty(), pending, &KeyConfig::default());
         assert_eq!(action, InputAction::SplitVertical);
     }
 
     #[test]
     fn test_prefix_then_new_tab() {
-        let (_, pending) = handle_key(Some(Keycode::A), Mod::LCTRLMOD, false);
-        let (action, _) = handle_key(Some(Keycode::T), Mod::empty(), pending);
+        let (_, pending) = handle_key(Some(Keycode::A), Mod::LCTRLMOD, false, &KeyConfig::default());
+        let (action, _) = handle_key(Some(Keycode::T), Mod::empty(), pending, &KeyConfig::default());
         assert_eq!(action, InputAction::NewTab);
     }
 
     #[test]
     fn test_prefix_then_literal_a() {
-        let (_, pending) = handle_key(Some(Keycode::A), Mod::LCTRLMOD, false);
-        let (action, _) = handle_key(Some(Keycode::A), Mod::empty(), pending);
+        let (_, pending) = handle_key(Some(Keycode::A), Mod::LCTRLMOD, false, &KeyConfig::default());
+        let (action, _) = handle_key(Some(Keycode::A), Mod::empty(), pending, &KeyConfig::default());
         assert_eq!(action, InputAction::ForwardToPty(vec![1]));
     }
 
     #[test]
     fn test_ctrl_c_quits() {
-        let (action, _) = handle_key(Some(Keycode::C), Mod::LCTRLMOD, false);
+        let (action, _) = handle_key(Some(Keycode::C), Mod::LCTRLMOD, false, &KeyConfig::default());
         assert_eq!(action, InputAction::Quit);
     }
 
     #[test]
     fn test_regular_char_forwarded() {
-        let (action, _) = handle_key(Some(Keycode::X), Mod::empty(), false);
+        let (action, _) = handle_key(Some(Keycode::X), Mod::empty(), false, &KeyConfig::default());
         match action {
             InputAction::ForwardToPty(bytes) => assert_eq!(bytes, b"x"),
             _ => panic!("Expected ForwardToPty"),
@@ -219,7 +260,7 @@ mod tests {
 
     #[test]
     fn test_shift_char() {
-        let (action, _) = handle_key(Some(Keycode::X), Mod::LSHIFTMOD, false);
+        let (action, _) = handle_key(Some(Keycode::X), Mod::LSHIFTMOD, false, &KeyConfig::default());
         match action {
             InputAction::ForwardToPty(bytes) => assert_eq!(bytes, b"X"),
             _ => panic!("Expected ForwardToPty"),
@@ -228,7 +269,7 @@ mod tests {
 
     #[test]
     fn test_arrow_keys() {
-        let (action, _) = handle_key(Some(Keycode::Up), Mod::empty(), false);
+        let (action, _) = handle_key(Some(Keycode::Up), Mod::empty(), false, &KeyConfig::default());
         match action {
             InputAction::ForwardToPty(bytes) => assert_eq!(bytes, vec![27, 91, 65]),
             _ => panic!("Expected ForwardToPty"),
@@ -237,7 +278,7 @@ mod tests {
 
     #[test]
     fn test_enter_key() {
-        let (action, _) = handle_key(Some(Keycode::Return), Mod::empty(), false);
+        let (action, _) = handle_key(Some(Keycode::Return), Mod::empty(), false, &KeyConfig::default());
         match action {
             InputAction::ForwardToPty(bytes) => assert_eq!(bytes, vec![13]),
             _ => panic!("Expected ForwardToPty"),
@@ -246,7 +287,7 @@ mod tests {
 
     #[test]
     fn test_alt_char() {
-        let (action, _) = handle_key(Some(Keycode::X), Mod::LALTMOD, false);
+        let (action, _) = handle_key(Some(Keycode::X), Mod::LALTMOD, false, &KeyConfig::default());
         match action {
             InputAction::ForwardToPty(bytes) => assert_eq!(bytes, vec![27, b'x']),
             _ => panic!("Expected ForwardToPty"),
@@ -261,8 +302,8 @@ mod tests {
 
     #[test]
     fn test_prefix_then_unknown_key() {
-        let (_, pending) = handle_key(Some(Keycode::A), Mod::LCTRLMOD, false);
-        let (action, _) = handle_key(Some(Keycode::X), Mod::empty(), pending);
+        let (_, pending) = handle_key(Some(Keycode::A), Mod::LCTRLMOD, false, &KeyConfig::default());
+        let (action, _) = handle_key(Some(Keycode::X), Mod::empty(), pending, &KeyConfig::default());
         // Should send Ctrl+A byte + 'x'
         match action {
             InputAction::ForwardToPty(bytes) => {
@@ -275,30 +316,30 @@ mod tests {
 
     #[test]
     fn test_prefix_navigation() {
-        let (_, pending) = handle_key(Some(Keycode::A), Mod::LCTRLMOD, false);
-        let (action, _) = handle_key(Some(Keycode::J), Mod::empty(), pending);
+        let (_, pending) = handle_key(Some(Keycode::A), Mod::LCTRLMOD, false, &KeyConfig::default());
+        let (action, _) = handle_key(Some(Keycode::J), Mod::empty(), pending, &KeyConfig::default());
         assert_eq!(action, InputAction::Navigate(Direction::Down));
 
-        let (_, pending) = handle_key(Some(Keycode::A), Mod::LCTRLMOD, false);
-        let (action, _) = handle_key(Some(Keycode::K), Mod::empty(), pending);
+        let (_, pending) = handle_key(Some(Keycode::A), Mod::LCTRLMOD, false, &KeyConfig::default());
+        let (action, _) = handle_key(Some(Keycode::K), Mod::empty(), pending, &KeyConfig::default());
         assert_eq!(action, InputAction::Navigate(Direction::Up));
     }
 
     #[test]
     fn test_shift_pageup_scrolls() {
-        let (action, _) = handle_key(Some(Keycode::PageUp), Mod::LSHIFTMOD, false);
+        let (action, _) = handle_key(Some(Keycode::PageUp), Mod::LSHIFTMOD, false, &KeyConfig::default());
         assert_eq!(action, InputAction::ScrollUp(10));
     }
 
     #[test]
     fn test_shift_pagedown_scrolls() {
-        let (action, _) = handle_key(Some(Keycode::PageDown), Mod::LSHIFTMOD, false);
+        let (action, _) = handle_key(Some(Keycode::PageDown), Mod::LSHIFTMOD, false, &KeyConfig::default());
         assert_eq!(action, InputAction::ScrollDown(10));
     }
 
     #[test]
     fn test_plain_pageup_forwards_to_pty() {
-        let (action, _) = handle_key(Some(Keycode::PageUp), Mod::empty(), false);
+        let (action, _) = handle_key(Some(Keycode::PageUp), Mod::empty(), false, &KeyConfig::default());
         match action {
             InputAction::ForwardToPty(bytes) => assert_eq!(bytes, vec![27, 91, 53, 126]),
             _ => panic!("Expected ForwardToPty"),

@@ -64,7 +64,7 @@ fn default_split_v() -> String { "v".to_string() }
 fn default_new_tab() -> String { "t".to_string() }
 fn default_close_tab() -> String { "w".to_string() }
 fn default_next_tab() -> String { "n".to_string() }
-fn default_prev_tab() -> String { "p".to_string() }
+fn default_prev_tab() -> String { "b".to_string() }
 
 impl Default for Config {
     fn default() -> Self {

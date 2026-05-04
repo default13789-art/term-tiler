@@ -35,6 +35,7 @@ fn main() -> Result<(), String> {
     spawn_pane(&mut panes, initial_id, &layout)?;
 
     let mut event_pump = sdl_context.event_pump()?;
+    let key_config = input::KeyConfig::from_config(&cfg.keybinds);
     let mut ctrl_a_pending = false;
     let mut cursor_blink_counter: u32 = 0;
     let mut cursor_visible = true;
@@ -47,7 +48,7 @@ fn main() -> Result<(), String> {
                 Event::Quit { .. } => break 'main_loop,
 
                 Event::KeyDown { keycode, keymod, .. } => {
-                    let (action, new_pending) = input::handle_key(keycode, keymod, ctrl_a_pending);
+                    let (action, new_pending) = input::handle_key(keycode, keymod, ctrl_a_pending, &key_config);
                     ctrl_a_pending = new_pending;
 
                     match action {
