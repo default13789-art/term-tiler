@@ -34,6 +34,8 @@ pub enum Color {
     Magenta,
     Cyan,
     White,
+    Indexed(u8),
+    Rgb(u8, u8, u8),
 }
 
 impl Color {
@@ -48,6 +50,8 @@ impl Color {
             Color::Magenta => (200, 50, 200),
             Color::Cyan => (50, 200, 200),
             Color::White => (220, 220, 220),
+            Color::Indexed(i) => indexed_to_rgb(*i),
+            Color::Rgb(r, g, b) => (*r, *g, *b),
         }
     }
 
@@ -62,6 +66,8 @@ impl Color {
             Color::Magenta => (140, 30, 140),
             Color::Cyan => (30, 140, 140),
             Color::White => (180, 180, 180),
+            Color::Indexed(i) => indexed_to_rgb(*i),
+            Color::Rgb(r, g, b) => (*r, *g, *b),
         }
     }
 }
@@ -292,6 +298,37 @@ impl Buffer {
                 row[i] = Cell::default();
             }
         }
+    }
+}
+
+fn indexed_to_rgb(index: u8) -> (u8, u8, u8) {
+    match index {
+        0..=7 => [
+            (0, 0, 0), (128, 0, 0), (0, 128, 0), (128, 128, 0),
+            (0, 0, 128), (128, 0, 128), (0, 128, 128), (192, 192, 192),
+        ][index as usize],
+        8..=15 => [
+            (128, 128, 128), (255, 0, 0), (0, 255, 0), (255, 255, 0),
+            (0, 0, 255), (255, 0, 255), (0, 255, 255), (255, 255, 255),
+        ][(index - 8) as usize],
+        16..=231 => {
+            let i = (index - 16) as u32;
+            let r = color_cube_value(i / 36);
+            let g = color_cube_value((i % 36) / 6);
+            let b = color_cube_value(i % 6);
+            (r, g, b)
+        }
+        232..=255 => {
+            let v = ((index - 232) as u32 * 10 + 8) as u8;
+            (v, v, v)
+        }
+    }
+}
+
+fn color_cube_value(component: u32) -> u8 {
+    match component {
+        0 => 0,
+        v => ((v - 1) * 40 + 55) as u8,
     }
 }
 

@@ -45,6 +45,8 @@ pub enum Color {
     Magenta,
     Cyan,
     White,
+    Indexed(u8),
+    Rgb(u8, u8, u8),
 }
 
 pub fn parse(input: &str) -> Vec<Action> {
@@ -183,37 +185,68 @@ fn parse_escape_sequence(chars: &mut std::iter::Peekable<std::str::Chars>) -> Ve
 
 fn parse_color_codes(codes: &[u32]) -> Vec<Action> {
     let mut actions = Vec::new();
-    for &code in codes {
+    let mut i = 0;
+    while i < codes.len() {
+        let code = codes[i];
         match code {
-            0 => actions.push(Action::Reset),
-            1 => actions.push(Action::SetBold(true)),
-            3 => actions.push(Action::SetItalic(true)),
-            4 => actions.push(Action::SetUnderline(true)),
-            7 => actions.push(Action::SetReverse(true)),
-            22 => actions.push(Action::SetBold(false)),
-            23 => actions.push(Action::SetItalic(false)),
-            24 => actions.push(Action::SetUnderline(false)),
-            27 => actions.push(Action::SetReverse(false)),
-            30 => actions.push(Action::SetFgColor(Color::Black)),
-            31 => actions.push(Action::SetFgColor(Color::Red)),
-            32 => actions.push(Action::SetFgColor(Color::Green)),
-            33 => actions.push(Action::SetFgColor(Color::Yellow)),
-            34 => actions.push(Action::SetFgColor(Color::Blue)),
-            35 => actions.push(Action::SetFgColor(Color::Magenta)),
-            36 => actions.push(Action::SetFgColor(Color::Cyan)),
-            37 => actions.push(Action::SetFgColor(Color::White)),
-            39 => actions.push(Action::SetFgColor(Color::Default)),
-            40 => actions.push(Action::SetBgColor(Color::Black)),
-            41 => actions.push(Action::SetBgColor(Color::Red)),
-            42 => actions.push(Action::SetBgColor(Color::Green)),
-            43 => actions.push(Action::SetBgColor(Color::Yellow)),
-            44 => actions.push(Action::SetBgColor(Color::Blue)),
-            45 => actions.push(Action::SetBgColor(Color::Magenta)),
-            46 => actions.push(Action::SetBgColor(Color::Cyan)),
-            47 => actions.push(Action::SetBgColor(Color::White)),
-            49 => actions.push(Action::SetBgColor(Color::Default)),
+            0 => { actions.push(Action::Reset); }
+            1 => { actions.push(Action::SetBold(true)); }
+            3 => { actions.push(Action::SetItalic(true)); }
+            4 => { actions.push(Action::SetUnderline(true)); }
+            7 => { actions.push(Action::SetReverse(true)); }
+            22 => { actions.push(Action::SetBold(false)); }
+            23 => { actions.push(Action::SetItalic(false)); }
+            24 => { actions.push(Action::SetUnderline(false)); }
+            27 => { actions.push(Action::SetReverse(false)); }
+            38 => {
+                // Extended foreground: 38;5;n (256-color) or 38;2;r;g;b (true color)
+                if i + 1 < codes.len() && codes[i + 1] == 5 && i + 2 < codes.len() {
+                    actions.push(Action::SetFgColor(Color::Indexed(codes[i + 2] as u8)));
+                    i += 2;
+                } else if i + 1 < codes.len() && codes[i + 1] == 2 && i + 4 < codes.len() {
+                    actions.push(Action::SetFgColor(Color::Rgb(
+                        codes[i + 2] as u8,
+                        codes[i + 3] as u8,
+                        codes[i + 4] as u8,
+                    )));
+                    i += 4;
+                }
+            }
+            48 => {
+                // Extended background: 48;5;n (256-color) or 48;2;r;g;b (true color)
+                if i + 1 < codes.len() && codes[i + 1] == 5 && i + 2 < codes.len() {
+                    actions.push(Action::SetBgColor(Color::Indexed(codes[i + 2] as u8)));
+                    i += 2;
+                } else if i + 1 < codes.len() && codes[i + 1] == 2 && i + 4 < codes.len() {
+                    actions.push(Action::SetBgColor(Color::Rgb(
+                        codes[i + 2] as u8,
+                        codes[i + 3] as u8,
+                        codes[i + 4] as u8,
+                    )));
+                    i += 4;
+                }
+            }
+            30 => { actions.push(Action::SetFgColor(Color::Black)); }
+            31 => { actions.push(Action::SetFgColor(Color::Red)); }
+            32 => { actions.push(Action::SetFgColor(Color::Green)); }
+            33 => { actions.push(Action::SetFgColor(Color::Yellow)); }
+            34 => { actions.push(Action::SetFgColor(Color::Blue)); }
+            35 => { actions.push(Action::SetFgColor(Color::Magenta)); }
+            36 => { actions.push(Action::SetFgColor(Color::Cyan)); }
+            37 => { actions.push(Action::SetFgColor(Color::White)); }
+            39 => { actions.push(Action::SetFgColor(Color::Default)); }
+            40 => { actions.push(Action::SetBgColor(Color::Black)); }
+            41 => { actions.push(Action::SetBgColor(Color::Red)); }
+            42 => { actions.push(Action::SetBgColor(Color::Green)); }
+            43 => { actions.push(Action::SetBgColor(Color::Yellow)); }
+            44 => { actions.push(Action::SetBgColor(Color::Blue)); }
+            45 => { actions.push(Action::SetBgColor(Color::Magenta)); }
+            46 => { actions.push(Action::SetBgColor(Color::Cyan)); }
+            47 => { actions.push(Action::SetBgColor(Color::White)); }
+            49 => { actions.push(Action::SetBgColor(Color::Default)); }
             _ => {}
         }
+        i += 1;
     }
     actions
 }

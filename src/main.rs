@@ -518,6 +518,8 @@ fn ansi_color_to_buffer(color: ansi::Color) -> buffer::Color {
         AnsiColor::Magenta => BufferColor::Magenta,
         AnsiColor::Cyan => BufferColor::Cyan,
         AnsiColor::White => BufferColor::White,
+        AnsiColor::Indexed(i) => BufferColor::Indexed(i),
+        AnsiColor::Rgb(r, g, b) => BufferColor::Rgb(r, g, b),
     }
 }
 
