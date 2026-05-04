@@ -302,17 +302,17 @@ impl Renderer {
     }
 
     /// Rasterize a glyph and cache it.
-    fn get_or_rasterize(&mut self, ch: char, bold: bool) -> Option<GlyphBitmap> {
+    fn ensure_glyph_cached(&mut self, ch: char, bold: bool) {
         let key = GlyphKey { ch, bold };
         if self.glyph_cache.contains_key(&key) {
-            return None; // Signal: use cache
+            return;
         }
 
         if let Some(font) = &self.font {
             let (metrics, pixels) = font.rasterize(ch, self.font_size);
 
             if metrics.width == 0 || metrics.height == 0 {
-                return None;
+                return;
             }
 
             // ── Industry-standard fontdue placement ──────────────────────────
@@ -346,7 +346,6 @@ impl Renderer {
             };
             self.glyph_cache.insert(key, bm);
         }
-        None
     }
 
     /// Draw a single glyph at (pixel_x, pixel_y) = top-left of its cell.
@@ -360,7 +359,7 @@ impl Renderer {
         pixel_y: usize,
     ) {
         // Ensure glyph is cached
-        self.get_or_rasterize(ch, bold);
+        self.ensure_glyph_cached(ch, bold);
 
         let key = GlyphKey { ch, bold };
         let bm = match self.glyph_cache.get(&key) {
