@@ -209,9 +209,13 @@ impl Buffer {
             return;
         }
         let n = n.min(self.height - at_y);
+        // Remove bottom n rows and push to scrollback
         for _ in 0..n {
-            if at_y + n < self.height {
-                self.cells.pop();
+            if let Some(row) = self.cells.pop() {
+                if self.scrollback.len() >= self.scrollback_limit {
+                    self.scrollback.pop_front();
+                }
+                self.scrollback.push_back(row);
             }
         }
         for _ in 0..n {
@@ -236,6 +240,17 @@ impl Buffer {
 
     pub fn scrollback_len(&self) -> usize {
         self.scrollback.len()
+    }
+
+    pub fn scroll_down(&mut self, n: usize) {
+        if n >= self.height {
+            self.clear();
+            return;
+        }
+        for _ in 0..n {
+            self.cells.pop();
+            self.cells.insert(0, vec![Cell::default(); self.width]);
+        }
     }
 
     pub fn insert_chars(&mut self, x: usize, y: usize, n: usize) {
@@ -411,6 +426,10 @@ mod tests {
         assert_eq!(buffer.get(0, 1).unwrap().ch, ' ');
         assert_eq!(buffer.get(0, 2).unwrap().ch, ' ');
         assert_eq!(buffer.get(0, 3).unwrap().ch, 'B');
+        // Dropped rows should be in scrollback (popped bottom-up, so D first then C)
+        assert_eq!(buffer.scrollback_len(), 2);
+        assert_eq!(buffer.scrollback[0][0].ch, 'D');
+        assert_eq!(buffer.scrollback[1][0].ch, 'C');
     }
 
     #[test]
@@ -454,5 +473,19 @@ mod tests {
         assert_eq!(buffer.get(1, 0).unwrap().ch, 'D');
         assert_eq!(buffer.get(2, 0).unwrap().ch, ' ');
         assert_eq!(buffer.get(3, 0).unwrap().ch, ' ');
+    }
+
+    #[test]
+    fn test_scroll_down() {
+        let mut buffer = Buffer::new(3, 4);
+        buffer.write(0, 0, 'A', Style::default());
+        buffer.write(0, 1, 'B', Style::default());
+        buffer.write(0, 2, 'C', Style::default());
+        buffer.write(0, 3, 'D', Style::default());
+        buffer.scroll_down(2);
+        assert_eq!(buffer.get(0, 0).unwrap().ch, ' ');
+        assert_eq!(buffer.get(0, 1).unwrap().ch, ' ');
+        assert_eq!(buffer.get(0, 2).unwrap().ch, 'A');
+        assert_eq!(buffer.get(0, 3).unwrap().ch, 'B');
     }
 }
