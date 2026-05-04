@@ -22,6 +22,7 @@ struct PaneState {
     origin_mode: bool,
     bracketed_paste: bool,
     autowrap: bool,
+    tab_stops: Vec<bool>,
 }
 
 fn main() -> Result<(), String> {
@@ -312,6 +313,7 @@ fn spawn_pane(
 ) -> Result<(), String> {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "bash".to_string());
     let new_pty = pty::PTY::new(shell.as_str(), &[])?;
+    let width = layout.find_pane(pane_id).map(|p| p.width).unwrap_or(80);
     if let Some(pane) = layout.find_pane(pane_id) {
         new_pty.set_window_size(pane.width as u16, pane.height as u16);
     }
@@ -327,6 +329,7 @@ fn spawn_pane(
         origin_mode: false,
         bracketed_paste: false,
         autowrap: true,
+        tab_stops: default_tab_stops(width),
     });
     Ok(())
 }
@@ -339,6 +342,11 @@ fn resize_pty(panes: &mut HashMap<usize, PaneState>, pane_id: usize, layout: &la
         ps.pty.set_window_size(pane.width as u16, pane.height as u16);
         ps.cursor_x = ps.cursor_x.min(pane.width.saturating_sub(1));
         ps.cursor_y = ps.cursor_y.min(pane.height.saturating_sub(1));
+        if pane.width > ps.tab_stops.len() {
+            ps.tab_stops.extend(default_tab_stops(pane.width)[ps.tab_stops.len()..].iter().copied());
+        } else {
+            ps.tab_stops.truncate(pane.width);
+        }
     }
 }
 
@@ -528,9 +536,10 @@ fn process_pty_actions(pane: &mut layout::Pane, ps: &mut PaneState, actions: &[a
             }
             ansi::Action::Tab => {
                 ps.wrap_pending = false;
-                let tab_width = 8;
-                let next_tab = ((ps.cursor_x / tab_width) + 1) * tab_width;
-                ps.cursor_x = next_tab.min(pane.width.saturating_sub(1));
+                let next = (ps.cursor_x + 1..pane.width)
+                    .find(|&x| ps.tab_stops.get(x).copied() == Some(true))
+                    .unwrap_or(pane.width.saturating_sub(1));
+                ps.cursor_x = next;
             }
             ansi::Action::CursorUpAbsolute(row) => {
                 ps.wrap_pending = false;
@@ -615,8 +624,35 @@ fn process_pty_actions(pane: &mut layout::Pane, ps: &mut PaneState, actions: &[a
             ansi::Action::SetCursorStyle(_style) => {
                 // Cursor style tracked but rendering not yet implemented
             }
+            ansi::Action::SetTabStop => {
+                if ps.cursor_x < ps.tab_stops.len() {
+                    ps.tab_stops[ps.cursor_x] = true;
+                }
+            }
+            ansi::Action::ClearTabStop(mode) => {
+                match mode {
+                    ansi::ClearTabMode::Current => {
+                        if ps.cursor_x < ps.tab_stops.len() {
+                            ps.tab_stops[ps.cursor_x] = false;
+                        }
+                    }
+                    ansi::ClearTabMode::All => {
+                        for stop in &mut ps.tab_stops {
+                            *stop = false;
+                        }
+                    }
+                }
+            }
         }
     }
+}
+
+fn default_tab_stops(width: usize) -> Vec<bool> {
+    let mut stops = vec![false; width];
+    for i in (8..width).step_by(8) {
+        stops[i] = true;
+    }
+    stops
 }
 
 fn ensure_cursor_in_bounds(pane: &mut layout::Pane, ps: &mut PaneState) {

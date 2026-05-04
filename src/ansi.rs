@@ -42,6 +42,8 @@ pub enum Action {
     DeviceStatusReport,
     DeviceAttributes,
     SetCursorStyle(CursorStyle),
+    SetTabStop,
+    ClearTabStop(ClearTabMode),
 }
 
 #[derive(PartialEq, Debug, Clone, Copy)]
@@ -69,6 +71,12 @@ pub enum PrivateMode {
 }
 
 #[derive(PartialEq, Debug, Clone, Copy)]
+pub enum ClearTabMode {
+    Current,
+    All,
+}
+
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum CursorStyle {
     Block,
     Underline,
@@ -92,6 +100,7 @@ pub fn parse(input: &str) -> Vec<Action> {
                 match next {
                     '7' => { chars.next(); actions.push(Action::SaveCursor); }
                     '8' => { chars.next(); actions.push(Action::RestoreCursor); }
+                    'H' => { chars.next(); actions.push(Action::SetTabStop); }
                     '(' | ')' | '*' | '+' => {
                         // SCS (Select Character Set) — consume and ignore
                         chars.next();
@@ -251,6 +260,13 @@ fn parse_escape_sequence(chars: &mut std::iter::Peekable<std::str::Chars>) -> Ve
                 }
             }
             'c' => vec![Action::DeviceAttributes],
+            'g' => {
+                let mode = if params.is_empty() { 0 } else { n };
+                vec![Action::ClearTabStop(match mode {
+                    3 => ClearTabMode::All,
+                    _ => ClearTabMode::Current,
+                })]
+            }
             'q' => {
                 if intermediate == Some(' ') {
                     let style = match n {
@@ -567,5 +583,17 @@ mod tests {
         assert_eq!(result, vec![Action::Write('t'), Action::Write('e'), Action::Write('x'), Action::Write('t')]);
         let result2 = parse("\x1B)0text");
         assert_eq!(result2, vec![Action::Write('t'), Action::Write('e'), Action::Write('x'), Action::Write('t')]);
+    }
+
+    #[test]
+    fn test_set_tab_stop() {
+        assert_eq!(parse("\x1BH"), vec![Action::SetTabStop]);
+    }
+
+    #[test]
+    fn test_clear_tab_stop() {
+        assert_eq!(parse("\x1B[0g"), vec![Action::ClearTabStop(ClearTabMode::Current)]);
+        assert_eq!(parse("\x1B[g"), vec![Action::ClearTabStop(ClearTabMode::Current)]);
+        assert_eq!(parse("\x1B[3g"), vec![Action::ClearTabStop(ClearTabMode::All)]);
     }
 }
