@@ -225,7 +225,7 @@ fn main() -> Result<(), String> {
 
         // --- Cleanup dead panes ---
         let mut panes_to_remove = Vec::new();
-        for (&pane_id, pane_state) in panes.iter() {
+        for (&pane_id, pane_state) in panes.iter_mut() {
             if !pane_state.pty.is_alive() {
                 panes_to_remove.push(pane_id);
             }

@@ -5,6 +5,7 @@ use std::ptr;
 pub struct PTY {
     pub pid: libc::pid_t,
     master: i32,
+    reaped: bool,
 }
 
 impl PTY {
@@ -86,7 +87,7 @@ impl PTY {
             }
         }
 
-        Ok(PTY { pid, master })
+        Ok(PTY { pid, master, reaped: false })
     }
 
     pub fn write(&mut self, data: &[u8]) -> Result<usize, String> {
@@ -144,11 +145,19 @@ impl PTY {
         self.master
     }
 
-    pub fn is_alive(&self) -> bool {
+    pub fn is_alive(&mut self) -> bool {
+        if self.reaped {
+            return false;
+        }
         unsafe {
             let mut status: libc::c_int = 0;
             let result = libc::waitpid(self.pid, &mut status, libc::WNOHANG);
-            result == 0
+            if result == 0 {
+                true
+            } else {
+                self.reaped = true;
+                false
+            }
         }
     }
 
@@ -178,6 +187,9 @@ impl PTY {
 impl Drop for PTY {
     fn drop(&mut self) {
         self.close();
+        if self.reaped {
+            return;
+        }
         unsafe {
             libc::kill(self.pid, libc::SIGTERM);
             // Give child 50ms to exit gracefully
@@ -189,6 +201,7 @@ impl Drop for PTY {
                 libc::kill(self.pid, libc::SIGKILL);
                 libc::waitpid(self.pid, &mut status, 0);
             }
+            self.reaped = true;
         }
     }
 }
