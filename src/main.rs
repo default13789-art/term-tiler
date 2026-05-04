@@ -197,6 +197,10 @@ fn main() -> Result<(), String> {
                                     let valid_up_to = e.valid_up_to();
                                     if valid_up_to == 0 {
                                         // Entire buffer is incomplete — keep buffering
+                                        // Cap at 4 bytes (max UTF-8 sequence) to prevent unbounded growth
+                                        if combined.len() > 4 {
+                                            combined.drain(..combined.len() - 4);
+                                        }
                                         pane_state.pending_utf8 = combined;
                                         break;
                                     }
