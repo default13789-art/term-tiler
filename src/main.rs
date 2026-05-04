@@ -608,6 +608,10 @@ fn process_pty_actions(pane: &mut layout::Pane, ps: &mut PaneState, actions: &[a
                 let response = format!("\x1B[{};{}R", row, col);
                 let _ = ps.pty.write(response.as_bytes());
             }
+            ansi::Action::DeviceAttributes => {
+                // VT220 response: service class 2, with SGR and ANSI color
+                let _ = ps.pty.write(b"\x1B[?64;1;2;6;9;15;16;17;18;21;22c");
+            }
             ansi::Action::SetCursorStyle(_style) => {
                 // Cursor style tracked but rendering not yet implemented
             }

@@ -40,6 +40,7 @@ pub enum Action {
     SetScrollRegion(usize, usize),
     SetPrivateMode(PrivateMode, bool),
     DeviceStatusReport,
+    DeviceAttributes,
     SetCursorStyle(CursorStyle),
 }
 
@@ -249,6 +250,7 @@ fn parse_escape_sequence(chars: &mut std::iter::Peekable<std::str::Chars>) -> Ve
                     vec![]
                 }
             }
+            'c' => vec![Action::DeviceAttributes],
             'q' => {
                 if intermediate == Some(' ') {
                     let style = match n {
@@ -544,6 +546,12 @@ mod tests {
     fn test_dsr() {
         assert_eq!(parse("\x1B[6n"), vec![Action::DeviceStatusReport]);
         assert_eq!(parse("\x1B[5n"), vec![]);
+    }
+
+    #[test]
+    fn test_device_attributes() {
+        assert_eq!(parse("\x1B[c"), vec![Action::DeviceAttributes]);
+        assert_eq!(parse("\x1B[0c"), vec![Action::DeviceAttributes]);
     }
 
     #[test]
