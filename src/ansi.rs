@@ -64,6 +64,7 @@ pub enum PrivateMode {
     AlternateScreen,
     OriginMode,
     BracketedPaste,
+    Autowrap,
 }
 
 #[derive(PartialEq, Debug, Clone, Copy)]
@@ -177,6 +178,7 @@ fn parse_escape_sequence(chars: &mut std::iter::Peekable<std::str::Chars>) -> Ve
                         1049 => vec![Action::SetPrivateMode(PrivateMode::AlternateScreen, set)],
                         6 => vec![Action::SetPrivateMode(PrivateMode::OriginMode, set)],
                         2004 => vec![Action::SetPrivateMode(PrivateMode::BracketedPaste, set)],
+                        7 => vec![Action::SetPrivateMode(PrivateMode::Autowrap, set)],
                         _ => vec![],
                     }
                 }

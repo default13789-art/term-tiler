@@ -21,6 +21,7 @@ struct PaneState {
     cursor_visible: bool,
     origin_mode: bool,
     bracketed_paste: bool,
+    autowrap: bool,
 }
 
 fn main() -> Result<(), String> {
@@ -325,6 +326,7 @@ fn spawn_pane(
         cursor_visible: true,
         origin_mode: false,
         bracketed_paste: false,
+        autowrap: true,
     });
     Ok(())
 }
@@ -345,25 +347,28 @@ fn process_pty_actions(pane: &mut layout::Pane, ps: &mut PaneState, actions: &[a
         match action {
             ansi::Action::Write(ch) => {
                 ensure_cursor_in_bounds(pane, ps);
-                if ps.wrap_pending {
+                if ps.autowrap && ps.wrap_pending {
                     ps.wrap_pending = false;
                     ps.cursor_x = 0;
                     ps.cursor_y += 1;
                     ensure_cursor_in_bounds(pane, ps);
                 }
                 let is_wide_ch = buffer::is_wide(*ch);
-                // If wide char won't fit at current position, wrap first
-                if is_wide_ch && ps.cursor_x + 1 >= pane.width {
+                if ps.autowrap && is_wide_ch && ps.cursor_x + 1 >= pane.width {
                     ps.cursor_x = 0;
                     ps.cursor_y += 1;
                     ensure_cursor_in_bounds(pane, ps);
                 }
                 pane.buffer.write(ps.cursor_x, ps.cursor_y, *ch, ps.style);
-                let advance = if is_wide_ch { 2 } else { 1 };
-                ps.cursor_x += advance;
-                if ps.cursor_x >= pane.width {
-                    ps.cursor_x = pane.width - 1;
-                    ps.wrap_pending = true;
+                if ps.autowrap {
+                    let advance = if is_wide_ch { 2 } else { 1 };
+                    ps.cursor_x += advance;
+                    if ps.cursor_x >= pane.width {
+                        ps.cursor_x = pane.width - 1;
+                        ps.wrap_pending = true;
+                    }
+                } else {
+                    ps.cursor_x = ps.cursor_x.min(pane.width.saturating_sub(1));
                 }
             }
             ansi::Action::MoveCursor(row, col) => {
@@ -588,6 +593,12 @@ fn process_pty_actions(pane: &mut layout::Pane, ps: &mut PaneState, actions: &[a
                     }
                     ansi::PrivateMode::BracketedPaste => {
                         ps.bracketed_paste = *set;
+                    }
+                    ansi::PrivateMode::Autowrap => {
+                        ps.autowrap = *set;
+                        if !*set {
+                            ps.wrap_pending = false;
+                        }
                     }
                 }
             }
