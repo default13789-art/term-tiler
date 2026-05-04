@@ -286,7 +286,6 @@ fn main() -> Result<(), String> {
             (id, PaneData {
                 cursor_x: ps.cursor_x,
                 cursor_y: ps.cursor_y,
-                style: ps.style,
             })
         }).collect();
 

@@ -513,7 +513,6 @@ impl Renderer {
 pub struct PaneData {
     pub cursor_x: usize,
     pub cursor_y: usize,
-    pub style: buffer::Style,
 }
 
 /// Generate the app icon: clean dark tile with rounded border and minimal `>_` prompt.
